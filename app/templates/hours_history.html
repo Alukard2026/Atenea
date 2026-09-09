@@ -1,0 +1,27 @@
+{% extends "workspace.html" %}
+{% block title %}Histórico mensual · Atenea{% endblock %}
+{% block content %}
+<section class="module-page">
+  <p class="eyebrow">{{ user.organization.name }} · {{ user.full_name }}</p>
+  <div class="page-heading"><div><h1>Histórico mensual</h1><p class="intro">Tus registros de {{ month_label }}, independientemente de cuándo los registraste.</p></div><a class="button-link" href="/hours">＋ Registrar horas</a></div>
+  {% if request.query_params.get('saved') == '1' %}<p class="notice" role="status">Registro guardado correctamente.</p>{% endif %}
+  {% if request.query_params.get('deleted') == '1' %}<p class="notice" role="status">Registro eliminado.</p>{% endif %}
+  <nav class="history-navigation" aria-label="Cambiar mes">{% if previous_month_url %}<a class="button-link secondary" href="{{ previous_month_url }}">← Mes anterior</a>{% endif %}<a class="text-link" href="/hours/history">Mes actual</a>{% if next_month_url %}<a class="button-link secondary" href="{{ next_month_url }}">Mes siguiente →</a>{% endif %}</nav>
+  <form action="/hours/history" method="get" class="card history-filters">
+    <div><label for="month">Mes trabajado</label><input id="month" name="month" type="month" required min="1900-01" max="2100-12" value="{{ month }}"></div>
+    <div><label for="client_id">Cliente / Empresa</label><select id="client_id" name="client_id"><option value="">Todos</option>{% for client in clients %}<option value="{{ client.id }}" {% if filters.client_id == client.id|string %}selected{% endif %}>{{ client.name }}{{ ' (inactivo)' if not client.is_active else '' }}</option>{% endfor %}</select></div>
+    <div><label for="project_id">Proyecto / Expediente</label><select id="project_id" name="project_id"><option value="">Todos</option><option value="none" {% if filters.project_id == 'none' %}selected{% endif %}>Sin proyecto</option>{% for project in projects %}<option value="{{ project.id }}" {% if filters.project_id == project.id|string %}selected{% endif %}>{{ project.client.name }} · {{ project.name }}</option>{% endfor %}</select></div>
+    <div><label for="billable">Facturable</label><select id="billable" name="billable"><option value="">Todos</option><option value="yes" {% if filters.billable == 'yes' %}selected{% endif %}>Sí</option><option value="no" {% if filters.billable == 'no' %}selected{% endif %}>No</option></select></div>
+    <div class="form-actions"><button class="primary-button" type="submit">Aplicar filtros</button><a class="text-link" href="/hours/history?month={{ month }}">Limpiar filtros</a></div>
+  </form>
+  <div class="week-totals">
+    <div class="card summary-metric general-total"><span>Total de horas del mes</span><strong id="month-total" data-total="{{ '%.2f'|format(month_total) }}">{{ '%.2f'|format(month_total) }} h</strong></div>
+    <div class="card summary-metric"><span>Facturables</span><strong id="billable-total" data-total="{{ '%.2f'|format(billable_total) }}">{{ '%.2f'|format(billable_total) }} h</strong></div>
+    <div class="card summary-metric"><span>No facturables</span><strong id="non-billable-total" data-total="{{ '%.2f'|format(non_billable_total) }}">{{ '%.2f'|format(non_billable_total) }} h</strong></div>
+  </div><p class="field-help">Los totales corresponden a los registros que cumplen los filtros seleccionados. Los clientes inactivos se conservan en el histórico.</p>
+  <div class="card table-card"><h2>{{ entries|length }} registros</h2>
+  {% if entries %}<div class="table-scroll"><table class="history-table"><thead><tr><th>Fecha</th><th>Cliente / Empresa</th><th>Proyecto / Expediente</th><th>Descripción</th><th class="numeric">Horas</th><th>Facturable</th><th>Acciones</th></tr></thead><tbody>
+  {% for entry in entries %}<tr data-entry-id="{{ entry.id }}"><td class="date-cell">{{ entry.work_date.strftime('%d/%m/%Y') }}</td><td>{{ entry.client.name }}</td><td>{{ entry.project.name if entry.project else 'Sin proyecto' }}</td><td class="description-cell">{{ entry.description or entry.activity }}</td><td class="numeric">{{ '%.2f'|format(entry.hours) }}</td><td>{{ 'Sí' if entry.billable else 'No' }}</td><td><div class="row-actions"><a href="/hours/{{ entry.id }}/edit">Editar</a><a class="danger-link" href="/hours/{{ entry.id }}/delete">Eliminar</a></div></td></tr>{% endfor %}
+  </tbody></table></div>{% else %}<p class="empty-state">No hay registros para este mes y estos filtros. Puedes añadir trabajo de meses anteriores desde Registrar horas.</p>{% endif %}</div>
+</section>
+{% endblock %}

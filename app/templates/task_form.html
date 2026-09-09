@@ -1,0 +1,35 @@
+{% extends "workspace.html" %}
+{% block title %}{{ 'Editar tarea' if task else 'Nueva tarea' }} · Atenea{% endblock %}
+{% block content %}
+<section class="module-page">
+  <p class="eyebrow">{{ user.organization.name }}</p>
+  <div class="page-heading"><div><h1>{{ 'Editar tarea' if task else 'Nueva tarea' }}</h1><p class="intro">Organiza tus pendientes, con o sin una fecha límite.</p></div><a class="button-link secondary" href="/tasks">Ver mis tareas</a></div>
+  <div class="card form-card">
+    {% include "form_errors.html" %}
+    <form method="post" action="{{ '/tasks/' ~ task.id ~ '/edit' if task else '/tasks/new' }}">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label for="title">Título</label><input id="title" name="title" maxlength="255" value="{{ data.get('title', '') }}" required placeholder="Ej. Enviar informe mensual">
+      <label for="description">Descripción <span class="muted">(opcional)</span></label><textarea id="description" name="description" maxlength="5000" rows="4">{{ data.get('description', '') }}</textarea>
+      <div class="field-grid">
+        <div><label for="due_date">Fecha límite <span class="muted">(opcional)</span></label><input id="due_date" name="due_date" type="date" min="1900-01-01" max="2100-12-31" value="{{ data.get('due_date', '') }}"></div>
+        <div><label for="due_time">Hora límite <span class="muted">(opcional)</span></label><input id="due_time" name="due_time" type="time" step="60" value="{{ data.get('due_time', '') }}"><p class="field-help">Sin hora, la tarea corresponde al día completo. Para indicar hora, elige también una fecha.</p></div>
+        <div><label for="priority">Prioridad</label><select id="priority" name="priority" required>{% for value, label in priorities.items() %}<option value="{{ value }}" {% if data.get('priority') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+        <div><label for="reminder_at">Recordatorio <span class="muted">(opcional)</span></label><input id="reminder_at" name="reminder_at" type="datetime-local" step="60" min="1900-01-01T00:00" max="2100-12-31T23:59" value="{{ data.get('reminder_at', '') }}"><p class="field-help">Se mostrará en Tareas cuando llegue su momento. Todavía no se envían notificaciones.</p></div>
+        <div><label for="client_id">Cliente / Empresa <span class="muted">(opcional)</span></label><select id="client_id" name="client_id"><option value="">Sin cliente</option>{% for client in clients %}<option value="{{ client.id }}" {% if data.get('client_id') == client.id|string %}selected{% endif %}>{{ client.name }}{{ ' (archivado)' if not client.is_active else '' }}</option>{% endfor %}</select></div>
+        <div><label for="project_id">Proyecto / Expediente <span class="muted">(opcional)</span></label><select id="project_id" name="project_id"><option value="">Sin proyecto</option>{% for project in projects %}<option value="{{ project.id }}" data-client-id="{{ project.client_id }}" {% if data.get('project_id') == project.id|string %}selected{% endif %}>{{ project.client.name }} · {{ project.name }}{{ ' (archivado)' if not project.is_active else '' }}</option>{% endfor %}</select><p class="field-help">Si eliges proyecto, debe pertenecer al cliente seleccionado.</p></div>
+      </div>
+      <p class="field-help">Zona horaria para fechas, horas y recordatorios: <strong>{{ zone.key }}</strong>.</p>
+      <div class="field-grid">
+        <div><label for="recurrence_type">Repetir</label><select id="recurrence_type" name="recurrence_type">{% for value, label in recurrences.items() %}<option value="{{ value }}" {% if data.get('recurrence_type', 'none') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+        <div><label for="recurrence_interval">Cada cuántos días / semanas / meses / años</label><input type="number" id="recurrence_interval" name="recurrence_interval" min="1" max="365" step="1" value="{{ data.get('recurrence_interval', '1') }}" required></div>
+        <div><label for="recurrence_end_date">Repetir hasta <span class="muted">(opcional, inclusive)</span></label><input type="date" id="recurrence_end_date" name="recurrence_end_date" min="1900-01-01" max="2100-12-31" value="{{ data.get('recurrence_end_date', '') }}"></div>
+      </div>
+      <p class="field-help">Completar o cancelar genera solamente la siguiente ocurrencia. No repetir detiene la continuación desde esta tarea si todavía no tiene sucesora. Las ediciones no modifican otras tareas ya creadas; la siguiente hereda los datos vigentes al generarse.</p>
+      {% if task and task.recurrence_anchor_date %}<p class="field-help">Fecha original de la regla: {{ task.recurrence_anchor_date.strftime('%d/%m/%Y') }}. Corregir la fecha de esta ocurrencia conserva el calendario original de las siguientes.</p>{% endif %}
+      {% if task %}<p>Estado: <strong>{{ statuses[task.status] }}</strong>. Puedes cambiarlo desde la lista de tareas.</p>{% endif %}
+      <div class="form-actions"><button type="submit">{{ 'Guardar cambios' if task else 'Crear tarea' }}</button><a href="/tasks">Volver sin guardar</a></div>
+    </form>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', path='/hours.js').path }}" defer></script>{% endblock %}

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block navigation %}
+<nav class="workspace-nav" aria-label="Navegación principal">
+  <a href="/tasks" {% if request.url.path.startswith('/tasks') %}aria-current="page"{% endif %}>Tareas</a>
+  <a href="/dashboard" {% if request.url.path == '/dashboard' %}aria-current="page"{% endif %}>Inicio</a>
+  <a href="/hours" {% if request.url.path == '/hours' %}aria-current="page"{% endif %}>Registrar horas</a>
+  <a href="/hours/history" {% if request.url.path == '/hours/history' %}aria-current="page"{% endif %}>Histórico mensual</a>
+  <a href="/hours/week" {% if request.url.path == '/hours/week' %}aria-current="page"{% endif %}>Mi semana</a>
+  <a href="/reports/month" {% if request.url.path.startswith('/reports/') %}aria-current="page"{% endif %}>Informes</a>
+  <a href="/clients" {% if request.url.path == '/clients' %}aria-current="page"{% endif %}>Clientes</a>
+  <a href="/projects" {% if request.url.path == '/projects' %}aria-current="page"{% endif %}>Proyectos / Expedientes</a>
+  {% if user.role == 'admin' %}<a href="/settings/workdays" {% if request.url.path == '/settings/workdays' %}aria-current="page"{% endif %}>Días laborables</a>{% endif %}
+  {% if user.role == 'admin' %}<a href="/settings/timezone" {% if request.url.path == '/settings/timezone' %}aria-current="page"{% endif %}>Zona horaria</a>{% endif %}
+</nav>
+<form action="/logout" method="post" class="logout-form">
+  <input type="hidden" name="csrf" value="{{ csrf_token }}">
+  <button class="quiet-button" type="submit">Cerrar sesión</button>
+</form>
+{% endblock %}

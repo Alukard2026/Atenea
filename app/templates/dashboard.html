@@ -1,0 +1,23 @@
+{% extends "workspace.html" %}
+{% block title %}Inicio · Atenea{% endblock %}
+{% block content %}
+<section class="dashboard">
+  <p class="eyebrow">TU ESPACIO DE TRABAJO</p>
+  <h1>Hola, {{ user.full_name }}.</h1>
+  <p class="intro">Bienvenido a {{ user.organization.name }}.</p>
+  <div class="account-grid">
+    <article class="card"><p class="eyebrow">ORGANIZACIÓN</p><h2>{{ user.organization.name }}</h2><p class="muted">Tu equipo en Atenea</p></article>
+    <article class="card"><p class="eyebrow">TU PERFIL</p><h2>{{ user.full_name }}</h2><p class="muted">Rol: <span class="role">{{ user.role }}</span></p></article>
+  </div>
+  <div class="ready-panel"><span class="status-dot" aria-hidden="true"></span><div><h2>Tus horas de esta semana: <span id="dashboard-week-total">{{ '%.2f'|format(week_total) }} h</span></h2><p>Total de lunes a domingo, incluyendo actividades facturables y no facturables.</p></div></div>
+  <div class="shortcut-grid">
+    <a class="card shortcut" href="/tasks"><h2>Tareas <span aria-hidden="true">↗</span></h2><p id="dashboard-tasks">{{ task_summary.overdue }} vencidas · {{ task_summary.today }} para hoy · {{ task_summary.upcoming }} para los próximos 7 días.</p></a>
+    <a class="card shortcut" href="/reports/month"><h2>Informes <span aria-hidden="true">↗</span></h2><p>Revisa tus totales y descarga informes semanales o mensuales en Excel.</p></a>
+    <a class="card shortcut" href="/hours/history"><h2>Histórico mensual <span aria-hidden="true">↗</span></h2><p>Mes actual: <strong id="dashboard-month-total">{{ '%.2f'|format(month_total) }} h</strong>. Consulta y corrige registros anteriores.</p></a>
+    <a class="card shortcut" href="/hours"><h2>Registrar horas <span aria-hidden="true">↗</span></h2><p>Añade una actividad de trabajo.</p></a>
+    <a class="card shortcut" href="/hours/week"><h2>Mi semana <span aria-hidden="true">↗</span></h2><p>Consulta tus registros y totales diarios.</p></a>
+    <a class="card shortcut" href="/clients"><h2>Clientes <span aria-hidden="true">↗</span></h2><p>Consulta las empresas y entidades para las que trabajas.</p></a>
+    <a class="card shortcut" href="/projects"><h2>Proyectos / Expedientes <span aria-hidden="true">↗</span></h2><p>Organiza el trabajo por cliente.</p></a>
+  </div>
+</section>
+{% endblock %}

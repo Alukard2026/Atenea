@@ -1,0 +1,25 @@
+{% extends "workspace.html" %}
+{% block title %}Días laborables · Atenea{% endblock %}
+{% block content %}
+<section class="module-page">
+  <p class="eyebrow">CONFIGURACIÓN · {{ user.organization.name }}</p>
+  <h1>Días laborables</h1>
+  <p><a href="/settings/timezone">Configurar zona horaria de la organización</a></p>
+  <p class="intro">Elige el calendario habitual de tu organización para clasificar las horas en los reportes.</p>
+  {% if request.query_params.get('saved') == '1' %}<p class="notice" role="status">Días laborables guardados correctamente.</p>{% endif %}
+  <div class="card form-card workdays-card">
+    <form action="/settings/workdays" method="post">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <fieldset class="workdays-fieldset" aria-describedby="workdays-help">
+        <legend>Días considerados laborables</legend>
+        <p id="workdays-help" class="muted">Marca cualquier combinación: todos los días, algunos o ninguno.</p>
+        <div class="workdays-grid">
+          {% for day in workdays %}<label class="workday-choice" for="{{ day.field }}"><input type="checkbox" id="{{ day.field }}" name="{{ day.field }}" value="on" {% if day.enabled %}checked{% endif %}><span>{{ day.label }}</span></label>{% endfor %}
+        </div>
+      </fieldset>
+      <p class="form-note">Siempre se puede registrar trabajo en cualquier día. Cambiar esta configuración reclasifica los totales de todas las semanas, incluidas las anteriores; no cambia los registros ni las horas.</p>
+      <div class="form-actions"><button class="primary-button" type="submit">Guardar días laborables</button><a class="text-link" href="/hours/week">Ver mi semana</a></div>
+    </form>
+  </div>
+</section>
+{% endblock %}

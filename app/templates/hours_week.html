@@ -1,0 +1,28 @@
+{% extends "workspace.html" %}
+{% block title %}Mi semana · Atenea{% endblock %}
+{% macro day_card(day) %}
+<article class="card day-card {{ 'working-day' if day.is_workday else 'non-working-day' }}" data-date="{{ day.date.isoformat() }}" data-workday="{{ 'true' if day.is_workday else 'false' }}">
+  <div class="day-heading"><h2>{{ day.label }} <span class="muted">{{ day.date.strftime('%d/%m/%Y') }}</span></h2><strong class="daily-total" data-total="{{ '%.2f'|format(day.total) }}">{{ '%.2f'|format(day.total) }} h</strong></div>
+  <p class="day-classification"><span class="badge {{ 'workday-badge' if day.is_workday else 'restday-badge' }}">{{ 'Laborable' if day.is_workday else 'No laborable' }}</span></p>
+  {% if day.entries %}<div class="table-scroll"><table><caption class="sr-only">Registros del {{ day.date.strftime('%d/%m/%Y') }}</caption><thead><tr><th scope="col">Cliente</th><th scope="col">Proyecto / Expediente</th><th scope="col">Descripci?n</th><th scope="col" class="numeric">Horas</th><th scope="col">Facturable</th><th scope="col">Acciones</th></tr></thead><tbody>
+    {% for entry in day.entries %}<tr><td>{{ entry.client.name }}</td><td>{{ entry.project.name if entry.project else 'Sin proyecto' }}</td><td>{{ entry.description or entry.activity }}</td><td class="numeric">{{ '%.2f'|format(entry.hours) }}</td><td><span class="badge {{ 'billable' if entry.billable else '' }}">{{ 'Sí' if entry.billable else 'No' }}</span></td><td><div class="row-actions"><a href="/hours/{{ entry.id }}/edit">Editar</a><a class="danger-link" href="/hours/{{ entry.id }}/delete">Eliminar</a></div></td></tr>{% endfor %}
+  </tbody></table></div>{% else %}<p class="empty-day">Sin registros.</p>{% endif %}
+</article>
+{% endmacro %}
+{% block content %}
+<section class="module-page weekly-page">
+  <p class="eyebrow">{{ user.organization.name }} · {{ user.full_name }}</p>
+  <p><a class="button-link secondary" href="/reports/week/export?week={{ week_start.isoformat() }}">Descargar Excel semanal</a></p>
+  <div class="page-heading"><div><h1>Mi semana</h1><p class="intro">Del {{ week_start.strftime('%d/%m/%Y') }} al {{ week_end.strftime('%d/%m/%Y') }}</p></div><a class="button-link" href="/hours">＋ Registrar horas</a></div>
+  {% if request.query_params.get('saved') == '1' %}<p class="notice" role="status">Registro guardado correctamente.</p>{% endif %}
+  {% if request.query_params.get('deleted') == '1' %}<p class="notice" role="status">Registro eliminado.</p>{% endif %}
+  <div class="week-toolbar"><nav aria-label="Cambiar semana">{% if previous_week %}<a class="button-link secondary" href="/hours/week?week={{ previous_week.isoformat() }}">← Semana anterior</a>{% endif %}<a class="text-link" href="/hours/week">Semana actual</a>{% if next_week %}<a class="button-link secondary" href="/hours/week?week={{ next_week.isoformat() }}">Semana siguiente →</a>{% endif %}</nav></div>
+  <div class="week-totals" aria-label="Totales de la semana">
+    <div class="card summary-metric"><span>Total en días laborables</span><strong id="working-total" data-total="{{ '%.2f'|format(working_total) }}">{{ '%.2f'|format(working_total) }} h</strong></div>
+    <div class="card summary-metric"><span>Total en días no laborables</span><strong id="non-working-total" data-total="{{ '%.2f'|format(non_working_total) }}">{{ '%.2f'|format(non_working_total) }} h</strong></div>
+    <div class="card summary-metric general-total"><span>Total general · lunes a domingo</span><strong id="week-total" data-total="{{ '%.2f'|format(week_total) }}">{{ '%.2f'|format(week_total) }} h</strong></div>
+  </div>
+  <p class="field-help">La clasificación utiliza los días laborables actuales de tu organización. Todos los registros están incluidos, sean facturables o no.</p>
+  {% for day in days %}{{ day_card(day) }}{% endfor %}
+</section>
+{% endblock %}

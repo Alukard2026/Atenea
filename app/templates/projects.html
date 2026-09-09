@@ -1,0 +1,31 @@
+{% extends "workspace.html" %}
+{% block title %}Proyectos / Expedientes · Atenea{% endblock %}
+{% block content %}
+<section class="module-page">
+  <p class="eyebrow">{{ user.organization.name }}</p>
+  <h1>Proyectos / Expedientes</h1><p class="intro">Organiza el trabajo de cada cliente.</p>
+  {% if request.query_params.get('created') == '1' %}<p class="notice" role="status">Proyecto creado correctamente.</p>{% endif %}
+  <div class="module-layout">
+    <div class="card">
+      <h2>Nuevo proyecto</h2>
+      {% include "form_errors.html" %}
+      {% if clients %}
+      <form action="/projects" method="post">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <label for="client_id">Cliente</label><select id="client_id" name="client_id" required><option value="">Selecciona un cliente</option>{% for client in clients %}<option value="{{ client.id }}" {% if data.get('client_id') == client.id|string %}selected{% endif %}>{{ client.name }}</option>{% endfor %}</select>
+        <label for="name">Nombre del proyecto / expediente</label><input id="name" name="name" maxlength="255" required value="{{ data.get('name', '') }}">
+        <label for="code">Código <span class="muted">(opcional)</span></label><input id="code" name="code" maxlength="50" value="{{ data.get('code', '') }}">
+        <label for="description">Descripción <span class="muted">(opcional)</span></label><textarea id="description" name="description" maxlength="5000" rows="4">{{ data.get('description', '') }}</textarea>
+        <button class="primary-button" type="submit">Crear proyecto <span aria-hidden="true">＋</span></button>
+      </form>
+      {% else %}<p class="empty-state">Primero necesitas un cliente activo.</p><a class="button-link" href="/clients">Crear un cliente</a>{% endif %}
+    </div>
+    <div class="card table-card">
+      <h2>Proyectos activos <span class="count">{{ projects|length }}</span></h2>
+      {% if projects %}<div class="table-scroll"><table><caption class="sr-only">Proyectos y sus clientes</caption><thead><tr><th scope="col">Cliente</th><th scope="col">Proyecto / Expediente</th><th scope="col">Código</th></tr></thead><tbody>
+      {% for project in projects %}<tr><td>{{ project.client.name }}</td><td><strong>{{ project.name }}</strong>{% if project.description %}<p class="cell-detail">{{ project.description }}</p>{% endif %}</td><td>{{ project.code or '—' }}</td></tr>{% endfor %}
+      </tbody></table></div>{% else %}<p class="empty-state">Todavía no hay proyectos activos.</p>{% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

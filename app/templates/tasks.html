@@ -1,0 +1,40 @@
+{% extends "workspace.html" %}
+{% block title %}Tareas · Atenea{% endblock %}
+{% block content %}
+<section class="module-page">
+  <p class="eyebrow">{{ user.organization.name }} · {{ user.full_name }}</p>
+  <div class="page-heading"><div><h1>Mis tareas</h1><p class="intro">Tus pendientes y el histórico de tareas completadas o canceladas.</p></div><a class="button-link" href="/tasks/new">Nueva tarea</a></div>
+  {% if request.query_params.get('saved') == '1' %}<p class="notice" role="status">Tarea guardada correctamente.</p>{% endif %}
+  <form action="/tasks" method="get" class="card history-filters">
+    <div><label for="status">Estado</label><select id="status" name="status"><option value="all">Todos</option>{% for value, label in statuses.items() %}<option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div><label for="priority">Prioridad</label><select id="priority" name="priority"><option value="">Todas</option>{% for value, label in priorities.items() %}<option value="{{ value }}" {% if filters.priority == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div><label for="client_id">Cliente</label><select id="client_id" name="client_id"><option value="">Todos</option>{% for client in clients %}<option value="{{ client.id }}" {% if filters.client_id == client.id|string %}selected{% endif %}>{{ client.name }}{{ ' (archivado)' if not client.is_active else '' }}</option>{% endfor %}</select></div>
+    <div><label for="period">Período</label><select id="period" name="period"><option value="">Todos</option>{% for value, label in periods.items() %}<option value="{{ value }}" {% if filters.period == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="form-actions"><button type="submit">Filtrar</button><a href="/tasks">Limpiar filtros</a></div>
+  </form>
+  <p class="field-help">Zona horaria: {{ zone.key }}. Primero aparecen las pendientes. «Próximos 7 días» comprende mañana y los seis días siguientes. Los recordatorios aparecen aquí; aún no se envían notificaciones.</p>
+  {% if not rows %}<p class="card empty-state">No hay tareas que coincidan con los filtros.</p>{% endif %}
+  {% for row in rows %}{% set task = row.task %}
+  <article class="card task-card" data-task-id="{{ task.id }}" data-status="{{ task.status }}" data-period="{{ row.period }}">
+    <div class="task-heading"><h2>{{ task.title }}</h2><span class="badge priority-{{ task.priority }}">Prioridad {{ priorities[task.priority]|lower }}</span></div>
+    <div class="task-meta"><strong>{{ statuses[task.status] }}</strong>{% if task.status == 'pending' %}<span class="badge {{ 'task-overdue' if row.period == 'overdue' else '' }}">{{ periods[row.period] }}</span>{% endif %}
+      <span>{{ task.due_date.strftime('%d/%m/%Y') if task.due_date else 'Sin fecha' }}{% if task.due_time %} · {{ task.due_time.strftime('%H:%M') }}{% endif %}</span>
+      <span>{{ task.client.name if task.client else 'Sin cliente' }}{% if task.project %} · {{ task.project.name }}{% endif %}</span>
+    </div>
+    {% if task.description %}<p class="task-description">{{ task.description }}</p>{% endif %}
+    {% if task.reminder_at %}<p class="field-help">Recordatorio: {{ task.reminder_at.astimezone(zone).strftime('%d/%m/%Y %H:%M') }}{% if row.reminder_due %} · <strong>Recordatorio pendiente</strong>{% endif %}</p>{% endif %}
+    {% if task.completed_at %}<p class="field-help">Completada el {{ task.completed_at.astimezone(zone).strftime('%d/%m/%Y %H:%M') }}.</p>{% endif %}
+    {% if task.recurrence_type != 'none' %}<p class="field-help">Repetición {{ recurrences[task.recurrence_type]|lower }} · intervalo {{ task.recurrence_interval }}{% if task.recurrence_end_date %} · hasta {{ task.recurrence_end_date.strftime('%d/%m/%Y') }}{% endif %}.</p>{% endif %}
+    {% if task.parent_task_id %}<p class="field-help"><a href="/tasks/{{ task.parent_task_id }}/edit">Ver ocurrencia anterior</a></p>{% endif %}
+    {% if row.next_task %}<p class="field-help"><a href="/tasks/{{ row.next_task.id }}/edit">Siguiente ocurrencia: {{ row.next_task.due_date.strftime('%d/%m/%Y') if row.next_task.due_date else 'Sin fecha' }}</a></p>
+    {% elif task.status != 'pending' and task.recurrence_type != 'none' %}<p class="field-help">Sin siguiente ocurrencia: se alcanzó el fin de repetición o el límite de fechas admitidas.</p>{% endif %}
+    <div class="task-actions"><a href="/tasks/{{ task.id }}/edit">Editar</a>
+      <form action="/tasks/{{ task.id }}/status" method="post"><input type="hidden" name="csrf" value="{{ csrf_token }}">
+        {% if task.status == 'pending' %}<button class="quiet-button" type="submit" name="status" value="completed">Marcar como completada</button>{% else %}<button class="quiet-button" type="submit" name="status" value="pending">Volver a pendiente</button>{% endif %}
+        {% if task.status != 'cancelled' %}<button class="quiet-button danger-link" type="submit" name="status" value="cancelled">Cancelar tarea</button>{% endif %}
+      </form>
+    </div>
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}

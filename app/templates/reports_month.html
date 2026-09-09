@@ -1,0 +1,35 @@
+{% extends "workspace.html" %}
+{% block title %}Informes · Atenea{% endblock %}
+{% block content %}
+<section class="module-page">
+  <p class="eyebrow">{{ user.organization.name }} · {{ user.full_name }}</p>
+  <div class="page-heading"><div><h1>Informes de horas</h1><p class="intro">{{ month_label }}</p></div><a class="button-link" href="/reports/month/export?month={{ month }}">Descargar Excel mensual</a></div>
+  <div class="week-toolbar">
+    <nav aria-label="Cambiar mes">
+      {% if previous_month %}<a class="button-link secondary" href="/reports/month?month={{ previous_month }}">← Mes anterior</a>{% endif %}
+      <a class="text-link" href="/reports/month">Mes actual</a>
+      {% if next_month %}<a class="button-link secondary" href="/reports/month?month={{ next_month }}">Mes siguiente →</a>{% endif %}
+    </nav>
+    <form action="/reports/month" method="get" class="inline-form"><label for="report-month">Mes</label><input id="report-month" type="month" name="month" value="{{ month }}" min="1900-01" max="2100-12" required><button type="submit">Consultar</button></form>
+  </div>
+  <div class="week-totals" aria-label="Totales del mes">
+    <div class="card summary-metric general-total"><span>Total del mes</span><strong id="report-total" data-total="{{ total }}">{{ total }} h</strong></div>
+    <div class="card summary-metric"><span>Facturable</span><strong id="report-billable">{{ billable_total }} h</strong></div>
+    <div class="card summary-metric"><span>No facturable</span><strong id="report-non-billable">{{ non_billable_total }} h</strong></div>
+  </div>
+  <p><strong id="report-active-days">{{ active_days }}</strong> días con actividad en este mes.</p>
+  {% if not entries %}<p class="notice">No tienes registros en este mes. Puedes descargar los informes con totales en cero.</p>{% endif %}
+  <article class="card">
+    <h2>Semanas del mes</h2>
+    <p class="field-help">Cada semana abarca de lunes a domingo. «Horas del mes» cuenta solo las fechas de {{ month_label|lower }}. Los Excel semanales incluyen la semana completa, aunque cruce a otro mes.</p>
+    <div class="table-scroll"><table>
+      <caption class="sr-only">Semanas que intersectan {{ month_label }}</caption>
+      <thead><tr><th scope="col">Semana</th><th scope="col" class="numeric">Horas de la semana completa</th><th scope="col" class="numeric">Horas del mes</th><th scope="col">Acciones</th></tr></thead>
+      <tbody>{% for week in weeks %}
+        <tr data-week="{{ week.start.isoformat() }}"><td>{{ week.start.strftime('%d/%m/%Y') }} – {{ week.end.strftime('%d/%m/%Y') }}</td><td class="numeric">{{ week.total }}</td><td class="numeric">{{ week.month_total }}</td><td><div class="row-actions"><a href="/hours/week?week={{ week.start.isoformat() }}">Ver semana</a><a href="/reports/week/export?week={{ week.start.isoformat() }}">Descargar Excel</a></div></td></tr>
+      {% endfor %}</tbody>
+      <tfoot><tr><th scope="row">Total del mes</th><td></td><td class="numeric"><strong>{{ total }}</strong></td><td></td></tr></tfoot>
+    </table></div>
+  </article>
+</section>
+{% endblock %}

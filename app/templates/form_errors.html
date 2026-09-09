@@ -1,0 +1,6 @@
+{% if errors %}
+<div class="alert" role="alert">
+  <strong>Revisa estos datos:</strong>
+  <ul>{% for field, message in errors.items() %}<li><a href="#{{ field }}">{{ message }}</a></li>{% endfor %}</ul>
+</div>
+{% endif %}

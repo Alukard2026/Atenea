@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Atenea{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/styles.css').path }}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">A<span class="brand-name">Atenea</span></a>
+    {% block navigation %}<span class="top-note">Tu espacio de trabajo</span>{% endblock %}
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+  <footer>Atenea <span aria-hidden="true">·</span> Un lugar para organizar tu trabajo.</footer>
+{% block scripts %}{% endblock %}
+</body>
+</html>

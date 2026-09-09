@@ -1,0 +1,20 @@
+{% extends "workspace.html" %}
+{% block title %}Zona horaria · Atenea{% endblock %}
+{% block content %}
+<section class="module-page">
+  <p class="eyebrow">CONFIGURACIÓN · {{ user.organization.name }}</p>
+  <h1>Zona horaria</h1>
+  <p class="intro">Zona de referencia para las fechas límite, el dashboard de tareas y los recordatorios de tu organización.</p>
+  {% if request.query_params.get('saved') == '1' %}<p class="notice" role="status">Zona horaria guardada.</p>{% endif %}
+  <div class="card form-card">
+    {% include "form_errors.html" %}
+    <form method="post" action="/settings/timezone">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <label for="timezone">Zona horaria de la organización</label>
+      <select id="timezone" name="timezone" required>{% for zone in zones %}<option value="{{ zone }}" {% if zone == selected_zone %}selected{% endif %}>{{ zone }}</option>{% endfor %}</select>
+      <p class="form-note">Las fechas y horas límite conservan su valor y se interpretan en la nueva zona. Los recordatorios ya guardados conservan su instante UTC; su hora mostrada puede cambiar. Las siguientes ocurrencias usarán la zona vigente al generarse.</p>
+      <div class="form-actions"><button type="submit">Guardar zona horaria</button><a href="/settings/workdays">Días laborables</a></div>
+    </form>
+  </div>
+</section>
+{% endblock %}
