@@ -12,6 +12,7 @@ from app.routers.auth import templates
 from app.web_auth import DatabaseSession, csrf_token, get_current_user, validate_csrf
 from app.web_auth import get_admin_user
 from app import worklog
+from app.client_domains import CLIENT_TYPES
 
 
 router = APIRouter(default_response_class=HTMLResponse)
@@ -37,7 +38,7 @@ def render(request, user, template, *, data=None, error=None, **context):
     return templates.TemplateResponse(
         request=request, name=template, status_code=422 if error else 200,
         context={"user": user, "csrf_token": csrf_token(request), "data": data or {},
-                 "errors": {error.field: error.message} if error else {}, **context},
+                 "errors": {error.field: error.message} if error else {}, "client_types": CLIENT_TYPES, **context},
     )
 
 
@@ -67,7 +68,8 @@ def create_client(request: Request, user: AdminUser, db: DatabaseSession, data: 
 @router.get("/clients/{client_id}/edit")
 def edit_client_page(client_id: int, request: Request, user: AdminUser, db: DatabaseSession):
     client = worklog.organization_client(db, user, client_id)
-    return render(request, user, "client_edit.html", client=client, data={"name": client.name, "code": client.code or ""})
+    return render(request, user, "client_edit.html", client=client, data={"name": client.name, "code": client.code or "",
+                  "email_domain": client.email_domain or "", "client_type": client.client_type})
 
 
 @router.post("/clients/{client_id}/edit")

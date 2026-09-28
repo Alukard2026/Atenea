@@ -6,8 +6,9 @@
   <div class="page-heading"><div><h1>{{ 'Editar tarea' if task else 'Nueva tarea' }}</h1><p class="intro">Organiza tus pendientes, con o sin una fecha límite.</p></div><a class="button-link secondary" href="/tasks">Ver mis tareas</a></div>
   <div class="card form-card">
     {% include "form_errors.html" %}
-    <form method="post" action="{{ '/tasks/' ~ task.id ~ '/edit' if task else '/tasks/new' }}">
+    <form method="post" action="{{ mail_context.action if mail_context else ('/tasks/' ~ task.id ~ '/edit' if task else '/tasks/new') }}">
       <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      {% if mail_context %}{% include "mail_task_suggestion.html" %}{% endif %}
       <label for="title">Título</label><input id="title" name="title" maxlength="255" value="{{ data.get('title', '') }}" required placeholder="Ej. Enviar informe mensual">
       <label for="description">Descripción <span class="muted">(opcional)</span></label><textarea id="description" name="description" maxlength="5000" rows="4">{{ data.get('description', '') }}</textarea>
       <div class="field-grid">
@@ -27,7 +28,7 @@
       <p class="field-help">Completar o cancelar genera solamente la siguiente ocurrencia. No repetir detiene la continuación desde esta tarea si todavía no tiene sucesora. Las ediciones no modifican otras tareas ya creadas; la siguiente hereda los datos vigentes al generarse.</p>
       {% if task and task.recurrence_anchor_date %}<p class="field-help">Fecha original de la regla: {{ task.recurrence_anchor_date.strftime('%d/%m/%Y') }}. Corregir la fecha de esta ocurrencia conserva el calendario original de las siguientes.</p>{% endif %}
       {% if task %}<p>Estado: <strong>{{ statuses[task.status] }}</strong>. Puedes cambiarlo desde la lista de tareas.</p>{% endif %}
-      <div class="form-actions"><button type="submit">{{ 'Guardar cambios' if task else 'Crear tarea' }}</button><a href="/tasks">Volver sin guardar</a></div>
+      <div class="form-actions"><button type="submit" {% if mail_context %}name="action" value="create_task"{% endif %}>{{ 'Guardar cambios' if task else 'Crear tarea' }}</button><a href="/tasks">Volver sin guardar</a></div>
     </form>
   </div>
 </section>

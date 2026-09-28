@@ -7,6 +7,7 @@
   <input type="hidden" name="csrf" value="{{ csrf_token }}">
   <label for="name">Nombre</label><input id="name" name="name" required maxlength="255" value="{{ data.get('name', '') }}">
   <label for="code">Código (opcional)</label><input id="code" name="code" maxlength="50" value="{{ data.get('code', '') }}">
+  {% include "client_domain_fields.html" %}
   <p class="form-note">El nombre actualizado se mostrará también en los registros históricos. No se eliminarán sus horas ni proyectos.</p>
   <div class="form-actions"><button class="primary-button" type="submit">Guardar cambios</button><a class="text-link" href="/clients">Cancelar</a></div>
 </form></div></section>

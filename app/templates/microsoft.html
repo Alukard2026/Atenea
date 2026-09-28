@@ -1,0 +1,29 @@
+{% extends "workspace.html" %}
+{% block title %}Microsoft · Atenea{% endblock %}
+{% block content %}
+<section class="module-page">
+  <p class="eyebrow">INTEGRACIONES · {{ user.organization.name }}</p>
+  <h1>Cuenta Microsoft</h1>
+  <div class="card form-card">
+  {% if error %}<p role="alert">{{ error }}</p>{% endif %}
+  {% if account %}
+    <p><strong>Conectado</strong></p>
+    {% if account.display_name %}<p>{{ account.display_name }}</p>{% endif %}
+    <p>{{ account.email or account.principal_name }}</p>
+    <p><a class="text-link" href="/mail">Consultar mi correo</a></p>
+    <form method="post" action="/integrations/microsoft/disconnect">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button type="submit">Desconectar Microsoft</button>
+    </form>
+  {% else %}
+    <p><strong>No conectado</strong></p>
+    <p>Conecta tu cuenta Microsoft a tu usuario de Atenea para consultar tu correo en modo de solo lectura.</p>
+    {% if not configured %}<p>La integración Microsoft está pendiente de configuración.</p>{% endif %}
+    <form method="post" action="/integrations/microsoft/connect">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button type="submit" {% if not configured %}disabled{% endif %}>Conectar Microsoft</button>
+    </form>
+  {% endif %}
+  </div>
+</section>
+{% endblock %}

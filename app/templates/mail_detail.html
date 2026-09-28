@@ -1,0 +1,28 @@
+{% extends "workspace.html" %}
+{% block title %}Detalle de correo · Atenea{% endblock %}
+{% block content %}
+<section class="module-page mail-page">
+  <p class="eyebrow">MICROSOFT · SOLO LECTURA</p>
+  <div class="mail-toolbar"><a class="text-link" href="/mail">Volver al correo</a>
+    <a class="button-link" href="{{ message.href }}/create-task">Crear tarea desde este correo</a>
+    <a class="text-link" href="{{ message.href }}">Actualizar mensaje</a>
+    {% if message.outlook_url %}<a class="text-link" href="{{ message.outlook_url }}" target="_blank" rel="noopener noreferrer">Abrir en Outlook ↗</a>{% endif %}
+  </div>
+  <article class="card mail-detail">
+    <h1>{{ message.subject }}</h1>
+    <dl class="record-summary">
+      <dt>De</dt><dd>{{ message.sender }}</dd>
+      <dt>Para</dt><dd>{{ message.recipients|join('; ') or 'No disponible' }}</dd>
+      {% if message.cc %}<dt>CC</dt><dd>{{ message.cc|join('; ') }}</dd>{% endif %}
+      <dt>Recibido</dt><dd>{{ message.received }} · {{ zone }}</dd>
+      <dt>Enviado</dt><dd>{{ message.sent }} · {{ zone }}</dd>
+      <dt>Importancia</dt><dd>{{ message.importance_label }}</dd>
+      <dt>Estado</dt><dd>{{ 'Leído' if message.is_read else 'No leído' }}</dd>
+      <dt>Adjuntos</dt><dd>{{ 'Contiene adjuntos; su lectura y descarga no están disponibles en Atenea.' if message.has_attachments else 'Sin adjuntos' }}</dd>
+    </dl>
+    <p class="form-note">Vista de texto. No se cargan imágenes ni contenido remoto del mensaje.</p>
+    {% if message.body_truncated %}<p class="notice">Este mensaje es muy largo y la vista de texto está recortada. Puedes consultarlo completo en Outlook.</p>{% endif %}
+    <div class="mail-body">{{ message.body or '(Sin contenido de texto)' }}</div>
+  </article>
+</section>
+{% endblock %}

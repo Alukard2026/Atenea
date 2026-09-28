@@ -235,4 +235,176 @@ Prueba manual: crea una mensual con fecha 31/01/2026 y un recordatorio. Complét
 
 `tests/test_recurrence.py` y `tests/test_recurrence_migration.py` añaden pruebas de calendario, intervalos, límites, idempotencia, cancelación, recordatorios, zonas por organización, permisos, CSRF y preservación/repetición/rollback de la migración. Los datos de prueba se revierten.
 
-No se implementan Outlook, Microsoft Graph, IA, notificaciones push o del sistema operativo, correo automático ni sincronización de calendario.
+No se implementan IA, notificaciones push o del sistema operativo, correo automático ni sincronización de calendario. La conexión Microsoft y la lectura controlada de correo se describen a continuación.
+
+## Conectar una cuenta Microsoft (primera etapa)
+
+Cada usuario autenticado puede conectar **una cuenta Microsoft propia** desde **Microsoft**, en la navegación. El flujo de conexión obtiene únicamente el perfil de `GET https://graph.microsoft.com/v1.0/me`. La Fase 1B, descrita al final de este documento, utiliza el permiso delegado `Mail.Read` ya consentido para consultar mensajes bajo demanda en `/mail`.
+
+### Registrar la aplicación en Microsoft Entra
+
+1. Entra en [Microsoft Entra admin center](https://entra.microsoft.com/) con una cuenta que pueda registrar aplicaciones. Abre **Entra ID → App registrations / Registros de aplicaciones → New registration / Nuevo registro**. Pon un nombre, por ejemplo **Atenea**.
+2. Elige los tipos de cuenta que admitirás. Para Microsoft 365 y Outlook.com personales, elige **Accounts in any organizational directory and personal Microsoft accounts** y configura `MICROSOFT_TENANT=common`. Si solo admitirás cuentas corporativas de cualquier organización, elige la opción multitenant corporativa y usa `organizations`. Si solo admitirás tu directorio, elige **Single tenant** y usa su **Directory (tenant) ID**. Este tenant de Microsoft es independiente de las organizaciones internas de Atenea.
+3. En **Redirect URI**, elige plataforma **Web** y registra exactamente `http://localhost:8000/integrations/microsoft/callback` para desarrollo. Pulsa **Register**. Abre Atenea también desde `http://localhost:8000` para conservar la cookie al volver: no mezcles `localhost` y `127.0.0.1`. En producción registra tu URL HTTPS con esa misma ruta; valor, puerto y ruta deben coincidir con `MICROSOFT_REDIRECT_URI`.
+4. En **Overview / Información general**, copia **Application (client) ID** a `MICROSOFT_CLIENT_ID` en tu `.env` local. Si elegiste single tenant, copia **Directory (tenant) ID** a `MICROSOFT_TENANT`.
+5. En **Certificates & secrets → Client secrets → New client secret**, crea un secreto con vencimiento acorde a tu operación. Copia su **Value / Valor**, no su Secret ID, a `MICROSOFT_CLIENT_SECRET`. No lo pegues en código, tickets, capturas o logs. Guarda y renueva el secreto antes de que venza.
+6. En **API permissions → Add a permission → Microsoft Graph → Delegated permissions**, configura exactamente `openid`, `profile`, `offline_access`, `User.Read` y `Mail.Read`. No añadas permisos de aplicación, `Mail.Send` ni `Mail.ReadWrite`. Si las políticas del directorio impiden el consentimiento del usuario, un administrador deberá conceder el consentimiento correspondiente.
+7. En **Authentication**, confirma la plataforma **Web**. Mantén desmarcadas las opciones de emisión implícita de access tokens e ID tokens y deshabilitados los flujos de cliente público. Atenea usa Authorization Code Flow con cliente confidencial MSAL y PKCE, sin flujo implícito.
+
+Referencias oficiales: [registro de aplicaciones](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app), [MSAL Python y Authorization Code Flow](https://msal-python.readthedocs.io/en/latest/), [permisos y acceso delegado de Graph](https://learn.microsoft.com/en-us/graph/auth-v2-user), [perfil `/me` en Graph v1.0](https://learn.microsoft.com/en-us/graph/api/user-get?view=graph-rest-1.0).
+
+### Configurar `.env` e iniciar
+
+No reemplaces tu `.env` existente con `.env.example`: conserva `DATABASE_URL`, `SESSION_SECRET` y las demás opciones actuales. El ejemplo contiene solo placeholders `replace_me`, que debes sustituir localmente. Las variables nuevas son:
+
+| Variable | Valor local que debes configurar |
+| --- | --- |
+| `MICROSOFT_CLIENT_ID` | Application (client) ID de la App Registration. |
+| `MICROSOFT_CLIENT_SECRET` | Valor del secreto de cliente. |
+| `MICROSOFT_TENANT` | `common`, `organizations` o ID del directorio, según la opción registrada. |
+| `MICROSOFT_REDIRECT_URI` | URL Web registrada; desarrollo: `http://localhost:8000/integrations/microsoft/callback`. |
+| `TOKEN_ENCRYPTION_KEY` | Clave Fernet aleatoria, diferente de `SESSION_SECRET`, compartida por todos los procesos de Atenea. |
+
+Si partes del ejemplo completo, configura también `APP_TIMEZONE` con una zona IANA, `SESSION_COOKIE_SECURE=false` para desarrollo HTTP (`true` en producción HTTPS), tu conexión PostgreSQL y un `SESSION_SECRET` aleatorio. Los placeholders no son configuración válida.
+
+Instala las dependencias y genera la clave de cifrado directamente en el `.env` ignorado por Git, sin imprimirla ni sustituir una clave existente:
+
+```powershell
+& .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+& .\.venv\Scripts\python.exe -c "from cryptography.fernet import Fernet; from dotenv import dotenv_values, set_key; v = dotenv_values('.env', interpolate=False); _ = set_key('.env', 'TOKEN_ENCRYPTION_KEY', Fernet.generate_key().decode()) if v.get('TOKEN_ENCRYPTION_KEY') in (None, '', 'replace_me') else None"
+& .\.venv\Scripts\python.exe -m app.migrate
+& .\.venv\Scripts\python.exe -m uvicorn app.main:create_app --factory --reload --host 127.0.0.1 --port 8000 --no-access-log
+```
+
+Abre `http://localhost:8000/login`, inicia sesión en Atenea y visita `http://localhost:8000/integrations/microsoft`. Pulsa **Conectar Microsoft**, selecciona tu cuenta y acepta el consentimiento. El retorno debe mostrar **Conectado** y tu cuenta Microsoft. **Desconectar Microsoft** elimina la conexión local y cualquier intento pendiente de ese usuario.
+
+La configuración Microsoft se valida al conectar; si falta o es inválida, el resto de Atenea puede arrancar y la pantalla indica que la integración está pendiente de configuración. La desconexión local sigue disponible aunque falte o haya cambiado la clave. No se generan claves ni se modifica `.env` al arrancar.
+
+### Rutas y almacenamiento
+
+| URL | Método | Función |
+| --- | --- | --- |
+| `/integrations/microsoft` | GET | Estado e identidad de la conexión propia; formulario conectar/desconectar. |
+| `/integrations/microsoft/connect` | POST + CSRF | Inicia OAuth y redirige a Microsoft. |
+| `/integrations/microsoft/callback` | GET | Valida state/sesión, intercambia el código, obtiene `/me` y guarda la conexión cifrada. |
+| `/integrations/microsoft/disconnect` | POST + CSRF | Borra la cuenta local, su cache y su flujo pendiente. |
+
+Todas requieren usuario y organización activos. Ninguna acepta del navegador una identidad Atenea para vincular la cuenta. El callback rechaza IDs de propietario en la URL; los formularios obtienen ambos IDs exclusivamente de la sesión verificada, incluso si se añaden campos extra. Administradores y usuarios tienen el mismo aislamiento personal.
+
+La migración aditiva **`005_microsoft_accounts.sql`** crea `microsoft_accounts` y `microsoft_oauth_flows`; no modifica filas anteriores. La clave foránea compuesta `(organization_id, user_id)` impide mezclar organizaciones y usuarios. Solo puede existir una conexión y un intento pendiente por propietario. `app.migrate` verifica columnas, claves, restricciones y defaults, usa una transacción y permite repetir la migración sin borrar conexiones.
+
+El cache de `msal.SerializableTokenCache`, incluidos los tokens que entregue Microsoft, se cifra con Fernet antes de escribirlo en PostgreSQL. El contenido cifrado incluye el usuario, organización y propósito para rechazar el intercambio de blobs entre propietarios. La lectura del cache desde ORM requiere una carga explícita; la pantalla solo consulta identidad. No hay cache global, archivos de tokens, tokens en cookies ni tokens en respuestas HTML.
+
+El flujo OAuth completo, con state, nonce y verificador PKCE, también se cifra en PostgreSQL. Los hashes de state y del token CSRF de la sesión vinculan el retorno al usuario y sesión originales. Los intentos caducan a los **10 minutos** y se consumen una sola vez, también ante errores del proveedor tras validar el state. Volver a conectar sustituye el intento previo. Los intentos abandonados permanecen cifrados e inutilizables tras caducar hasta la siguiente conexión o desconexión de ese propietario; no se incorpora un proceso automático de limpieza. Login en otra sesión o cambio de configuración de cliente/tenant/retorno exige reiniciar el flujo.
+
+El callback usa `response_mode=query` (GET) para que el navegador envíe la cookie existente `SameSite=Lax` al volver desde Microsoft. MSAL emite una advertencia informativa recomendando `form_post`; un POST entre sitios requeriría otro mecanismo de continuidad de sesión. Se mantienen PKCE, nonce, state de uso único, redirección inmediata a URL limpia y protección de logs/referrer. La CSP permite `https://login.microsoftonline.com` en `form-action` únicamente para la pantalla de integración y su POST de conexión, porque Chromium también comprueba el destino del 303.
+
+Connect, callback y disconnect serializan las escrituras por usuario en PostgreSQL. Un fallo al reconectar conserva la conexión anterior. Disconnect elimina físicamente las filas locales y su cache: no cierra la sesión de Microsoft ni revoca el consentimiento en Entra. Para revocar ese consentimiento, el usuario o administrador debe hacerlo en Microsoft. La eliminación de PostgreSQL no purga copias históricas de backups: protégelos junto con sus políticas de retención.
+
+Mantén la clave Fernet fuera de Git y separada de los backups de PostgreSQL. Perderla impide descifrar las conexiones existentes. Esta etapa no implementa rotación automática: para cambiarla sin migrar caches, desconecta las cuentas localmente, cambia la clave en todos los procesos y vuelve a conectarlas. Los logs de MSAL y su transporte se deshabilitan para evitar respuestas de tokens en DEBUG; Uvicorn omite las peticiones del callback mediante un filtro adicional. Conserva `--no-access-log` y configura el proxy/APM para no registrar query strings del callback, cuerpos, encabezados Authorization ni cookies. El callback redirige inmediatamente a una URL limpia y las respuestas llevan `no-store` y `no-referrer`.
+
+### Verificación sin Microsoft real
+
+```powershell
+& .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+& .\.venv\Scripts\python.exe -m pip check
+& .\.venv\Scripts\python.exe -m unittest discover -s tests -p test_uvicorn_startup.py -v
+```
+
+`tests/test_microsoft.py` simula MSAL y Graph, bloquea el transporte real y prueba el usuario desconectado, scopes, state, PKCE, sesión original, callback correcto, aislamiento por usuario/organización, cifrado, ausencia de secretos en respuestas/logs y desconexión. Incluye un contrato offline del inicio OAuth con MSAL real y metadatos simulados. `tests/test_microsoft_migration.py` comprueba creación, repetición, preservación, rollback y rechazo de esquemas incompatibles. `tests/test_uvicorn_startup.py` comprueba HTTP de Uvicorn, incluyendo las nuevas páginas protegidas. Estas pruebas no verifican una App Registration real ni realizan llamadas reales a Graph; el consentimiento interactivo queda como paso manual después de configurar Entra.
+
+## Fase 1B: lectura controlada del buzón
+
+Con la conexión Microsoft existente, abre **Correo** en la navegación o `http://localhost:8000/mail`. No hay nuevas variables `.env`, permisos, dependencias ni migraciones. Los permisos siguen siendo `openid`, `profile`, `offline_access`, `User.Read` y `Mail.Read`; las adquisiciones silenciosas del buzón piden exclusivamente `Mail.Read` delegado. No se consultan buzones ajenos, aunque el usuario sea administrador de Atenea.
+
+| Ruta | Método | Comportamiento |
+| --- | --- | --- |
+| `/mail` | GET | Lista de hasta 20 correos, ordenados por recepción descendente. |
+| `/mail/{message_id}` | GET | Consulta de un único mensaje, con cuerpo en texto, destinatarios y CC. |
+
+Cada visita vuelve a consultar Microsoft Graph v1.0. Se usa `/me/messages` para el buzón completo (no solo la carpeta Entrada) y `/me/messages/{id}` para el detalle. No se marca el mensaje como leído al abrirlo. La pantalla sin conexión ofrece un enlace a `/integrations/microsoft` y no llama a Microsoft.
+
+### Filtros y paginación
+
+Los filtros son `state=all|unread|read` e `importance=all|low|normal|high`. Se rechazan parámetros desconocidos, repetidos y valores fuera de esos enums; no se admite OData arbitrario. El filtro de fecha base aparece antes de `isRead` e `importance` para cumplir las reglas de Graph al combinar `$filter` con `$orderby`. Los asuntos, previews y remitentes no se guardan para buscar ni filtrar localmente.
+
+**La búsqueda por texto no se implementa en esta fase.** Se prioriza la combinación estable de filtros y orden por recepción: `$search` de mensajes tiene su propio orden por envío y un máximo de 1.000 resultados; no se mezcla con la consulta ordenada del listado ni se simula una búsqueda parcial sobre 20 mensajes. Referencias: [reglas de filter/orderby](https://learn.microsoft.com/en-us/graph/api/user-list-messages?view=graph-rest-1.0), [restricciones de búsqueda de mensajes](https://learn.microsoft.com/en-us/graph/search-query-parameter).
+
+**Siguiente página** utiliza el `@odata.nextLink` original, sin reconstruir `$skip` ni `$skiptoken`. La URL queda dentro de un cursor Fernet autenticado y cifrado, válido durante **15 minutos**, ligado al usuario, organización, sesión, conexión Microsoft y filtros. No se guarda en PostgreSQL ni se almacena historial de mensajes. Cambiar filtros vuelve a la primera página. Se ofrece **Volver al inicio**, sin salto a página N ni botón de página anterior; el botón Atrás del navegador conserva la URL anterior, que puede volver a consultarse mientras el cursor sea válido.
+
+Antes de enviar un Bearer, se exige HTTPS y el host exacto `graph.microsoft.com`, sin credenciales, fragmentos, puertos alternativos ni redirecciones HTTP. Los nextLink se limitan a `/v1.0/me/messages` o su forma canónica con el ID de **esa misma cuenta**; además deben conservar `$select`, `$top`, `$orderby` y los filtros originales. Se rechazan expansiones y campos adicionales. El navegador solo proporciona el cursor emitido por Atenea, nunca una URL externa a solicitar. Un nextLink de formato inesperado se rechaza y permite volver al inicio. [Paginación oficial de Graph](https://learn.microsoft.com/en-us/graph/paging).
+
+### Cliente Graph y tokens
+
+`app/graph.py` concentra el transporte de lectura y el manejo de errores. Recupera la cuenta por ambos IDs de la sesión, descifra el cache existente y utiliza `acquire_token_silent_with_error`. Se exige un único usuario MSAL dentro del cache propio, creado por la conexión 1A; un cache vacío, ambiguo o imposible de descifrar pide reconectar. No se compara el `realm` interno de MSAL con el tenant del perfil, porque al autenticar mediante `common` pueden diferir. No hay tokens globales.
+
+La adquisición silenciosa y la persistencia del cache usan el mismo bloqueo por propietario que connect/callback/disconnect. Una renovación cifra el cache completo antes de actualizarlo, incluyendo una eventual rotación del refresh token. Si no cambió, no se escribe. El bloqueo termina antes de consultar mensajes a Graph. Una desconexión impide consultas posteriores y no puede ser revertida por una escritura tardía del cache; una petición que ya salió hacia Graph puede terminar. Reconectar invalida los cursores anteriores.
+
+El transporte usa timeouts explícitos de **5 segundos de conexión y 15 de lectura**, con redirecciones deshabilitadas. Hay como máximo **un reintento total** por consulta:
+
+- `401`: fuerza una adquisición silenciosa y reintenta una vez; si persiste, solicita reconexión.
+- `403`: informa del acceso/consentimiento insuficiente sin cambiar permisos.
+- `404`: informa de que el mensaje no está disponible.
+- `429`: interpreta `Retry-After` como segundos o fecha HTTP. Si la espera es de hasta 2 segundos, espera y reintenta una vez. Para esperas mayores no mantiene bloqueada la petición: devuelve una pantalla 429 y el encabezado `Retry-After`. Si falta o es inválido, indica 30 segundos sin reintento inmediato.
+- `5xx`, fallos de transporte y timeout: muestran mensajes amigables y permiten reintentar manualmente; no hay bucles ni reintentos en background.
+
+Nunca se muestra el JSON ni el texto de error interno del proveedor. [Guía oficial sobre throttling y Retry-After](https://learn.microsoft.com/en-us/graph/throttling).
+
+### Cuerpo, fechas y privacidad
+
+El listado pide únicamente `id`, `subject`, `from`, `receivedDateTime`, `isRead`, `hasAttachments`, `importance`, `bodyPreview` y `webLink`: **no solicita `body` ni adjuntos**. El detalle añade solo los campos necesarios de destinatarios, CC, fecha de envío y cuerpo. `hasAttachments` es un indicador; nunca se consulta la colección de adjuntos ni se descarga contenido.
+
+Se solicita `Prefer: outlook.body-content-type="text"`. Si Graph devuelve HTML, se extrae solamente texto mediante `html.parser.HTMLParser`, descartando atributos y contenido de script, style, iframe, form, object, SVG y otros elementos ejecutables/embebidos. **La salida siempre pasa por el autoescape de Jinja; nunca se renderiza HTML del correo con `safe`**, incluso si Graph lo etiqueta erróneamente como texto. Es una vista textual, no un sanitizador que intente conservar HTML. Por ello no se necesita añadir una biblioteca de sanitización. No se insertan imágenes, estilos, formularios, enlaces ni recursos remotos del cuerpo; la CSP existente añade otra barrera. [Preferencia de texto de Graph](https://learn.microsoft.com/en-us/graph/api/message-get?view=graph-rest-1.0).
+
+Se limita la representación del cuerpo a un millón de caracteres, con aviso si se recorta, y el preview a 240. La vista pierde formato HTML y no hace clicables los enlaces del cuerpo. El enlace opcional **Abrir en Outlook** solo acepta HTTPS en `outlook.office.com`, `outlook.office365.com` y `outlook.live.com`, usando `noopener noreferrer`. Las fechas con offset/UTC se convierten mediante `organization_zone`; fechas sin zona o inválidas muestran «Fecha no disponible», sin suponer la zona del servidor.
+
+**No se crean tablas, archivos ni caches persistentes de correo.** Asuntos, remitentes, destinatarios, previews y cuerpos solo viven durante la petición/respuesta. Las únicas escrituras del módulo son cambios del cache MSAL cifrado en la cuenta existente. La sesión no contiene mensajes; los cursores solo contienen navegación y su vinculación. Todas las páginas conservan `Cache-Control: no-store` y `Referrer-Policy: no-referrer`.
+
+El logger `atenea.graph` registra únicamente endpoint lógico (`token`, `messages`, `message`), estado técnico/HTTP y, si tiene formato UUID, `request-id`. No registra URLs, filtros, IDs de mensajes, Authorization, tokens, cache descifrado ni cuerpos. El filtro de Uvicorn omite también `/mail` y sus detalles/cursores. Mantén `--no-access-log` y configura proxies/APM para no registrar estas URLs, cuerpos o encabezados sensibles.
+
+### Validación y uso manual
+
+`tests/test_mail.py` cubre autenticación, cuenta desconectada, listado/select, detalle, aislamiento de usuarios/organizaciones/administradores, filtros, IDs inválidos, cursores alterados/caducados y SSRF, `401/403/404/429/5xx`, redirecciones, timeout, HTML hostil, timezone, cache corrupto, desconexión, ausencia de contenido en SQL y logs y renovación cifrada. Incluye MSAL real con transporte simulado para comprobar tanto un cache `common` vigente como la renovación de un token vencido. Se bloquea todo transporte Microsoft real durante las pruebas.
+
+Ejecuta la suite y `pip check` con los comandos anteriores. La prueba de Uvicorn también verifica que `/mail` y `/mail/{message_id}` redirijan al login sin sesión.
+
+Para probar manualmente con tu conexión ya operativa: reinicia Uvicorn, inicia sesión, abre **Correo**, cambia estado/importancia, abre un mensaje y comprueba destinatarios, fechas y texto. Usa **Siguiente página** si hay más resultados. No necesitas modificar Entra ni `.env`. Si Microsoft requiere interacción por caducidad/revocación de la sesión, desconecta y reconecta desde **Microsoft**. No se implementan envíos, respuestas, modificaciones del buzón, adjuntos, sincronización, webhooks, IA, clasificación ni resúmenes.
+
+## Correo → tarea: empresa o institución por dominio
+
+Desde el detalle de correo pulsa **Crear tarea desde este correo**. La ruta **`GET /mail/{message_id}/create-task`** consulta únicamente `id`, `subject`, `from` e `importance` en el buzón del usuario conectado. Propone el asunto como título editable, deja la descripción vacía y reutiliza los campos de tareas (cliente, proyecto, vencimiento, prioridad, recordatorio y recurrencia). No consulta ni copia el cuerpo completo ni el preview. Las notas de descripción son las que el usuario escribe en el formulario.
+
+La sección **Empresa / Institución detectada** normaliza el dominio del remitente a minúsculas, sin inferir identidad a partir del nombre visible. La comparación es por dominio exacto y organización actual; no se comparte entre organizaciones ni se busca por el nombre sugerido. La prioridad es: asociación existente → mapping explícito → sugerencia básica del primer componente del dominio. Un cliente existente conserva su nombre y tipo, aunque difieran de la sugerencia.
+
+`app/client_domains.py` centraliza `DOMAIN_NAMES`, `PUBLIC_EMAIL_DOMAINS` y `CLIENT_TYPES`. Los overrides iniciales son `corporativa.cr → Corporativa`, `dma.com.sv → DMA` y `defensoria.gob.sv → Defensoría del Consumidor`. Se pueden ampliar editando esas estructuras, sin tocar rutas ni templates. Los dominios `.gob.sv` sugieren `institucion_publica`; el resto de dominios no públicos sugieren `empresa`. `otro` está disponible para correcciones. Estas reglas son configurables y no usan IA, DNS ni servicios externos.
+
+Gmail, Outlook, Hotmail, Yahoo, iCloud y los otros proveedores centralizados (incluidos sus subdominios) dejan el cliente sin preseleccionar y permiten selección manual. No se crean clientes llamados Gmail/Outlook ni se permite asociar un dominio de proveedor público a un único cliente desde el catálogo. La lista no pretende ser exhaustiva: añade nuevos proveedores a `PUBLIC_EMAIL_DOMAINS` conforme sea necesario.
+
+Si el dominio no tiene asociación, se muestra **No existe todavía en Atenea**. Los administradores pueden desplegar **Crear cliente/institución a partir del remitente**, corregir el nombre y el tipo, y confirmar mediante **POST + CSRF**. El dominio es el del remitente leído de nuevo desde Graph: el navegador no puede sustituirlo. Crear el cliente conserva los campos de la tarea, lo deja seleccionado y todavía no guarda la tarea. **Crear tarea** requiere un segundo envío explícito. Abrir el correo o el formulario mediante GET no crea clientes ni tareas.
+
+Se conserva el permiso previo del catálogo: **solo administradores crean clientes**. Otros usuarios pueden seleccionar clientes existentes y guardar sus propias tareas. Un cliente archivado mantiene reservado el dominio, se muestra como archivado y debe reactivarse antes de usarlo en una tarea nueva. Si otro proceso crea la asociación antes de confirmar, se reutiliza el cliente existente sin renombrarlo ni duplicarlo.
+
+Los administradores también pueden configurar `email_domain` y `client_type` desde **Clientes → Editar**, para asociar dominios a clientes previos. La coincidencia de nombres por sí sola no autoriza asociar un dominio automáticamente: si el nombre sugerido ya existe sin dominio, usa Editar para registrar la asociación en ese cliente. Las ediciones antiguas que omitan estos campos conservan sus valores.
+
+### Migración 006 y conservación de datos
+
+Ejecuta `python -m app.migrate` antes de iniciar esta versión en otro entorno. La migración aditiva **`006_client_email_domains.sql`**, con sus restricciones aplicadas por el ejecutor en la misma transacción, añade:
+
+- `clients.email_domain VARCHAR(253) NULL`: los clientes existentes quedan con dominio vacío.
+- `clients.client_type VARCHAR(30) NOT NULL DEFAULT 'otro'`: valor neutral para registros existentes, sin reclasificarlos por su nombre.
+- Unicidad de `(organization_id, email_domain)`, permitiendo varios NULL y el mismo dominio en organizaciones distintas.
+- CHECKs para los tres tipos admitidos y dominios normalizados en minúsculas.
+
+No se elimina ni modifica el nombre, código, estado, ID o relaciones de ningún cliente. La normalización se realiza al guardar datos nuevos/editados; la migración no infiere dominios ni renombra datos existentes. El ejecutor usa los mismos límites de bloqueo, transacción y verificaciones que las migraciones anteriores. Se puede repetir sin restablecer valores.
+
+### Seguridad y alcance del flujo de tarea
+
+Los POST van a **`/mail/{message_id}/create-task`**, con acción explícita `create_client` o `create_task`. Además del CSRF, el formulario contiene un contexto cifrado ligado a usuario, organización, sesión, conexión y mensaje, válido 30 minutos. Nunca contiene el cuerpo. Se rechazan campos de propietario o referencias de origen enviados por el navegador. El mensaje se vuelve a consultar en el buzón propio antes de guardar; una desconexión o cambio de cuenta invalida el formulario.
+
+Las creaciones de clientes comparten el bloqueo de organización del catálogo y la restricción única protege también la base. Las tareas guardan únicamente el título y notas confirmadas por el usuario, sus campos normales y `source_type=microsoft_mail` con una referencia hash del ID de cuenta y mensaje en `source_id`. El guardado se serializa por usuario: repetir el envío devuelve la tarea original en vez de crear otra, sin sobrescribir sus ediciones. Si el mensaje cambia de ID al moverse en Outlook, esta referencia no detecta que se trata del mismo mensaje; no se modifica la estrategia de IDs de Graph en esta fase.
+
+No se autentica una empresa por su dominio remitente: una dirección puede ser suplantada y toda sugerencia debe revisarse. No se hacen modificaciones en Microsoft, no se cambian permisos y no hay IA ni almacenamiento automático del cuerpo completo. No se añaden dependencias ni variables `.env`.
+
+Este repositorio no contenía un flujo anterior de Fase 1C al implementar esta ampliación. El alcance añadido es el formulario manual descrito aquí; no se presupone ninguna otra funcionalidad de una especificación de Fase 1C no incluida.
+
+`tests/test_mail_tasks.py` comprueba los mappings, proveedores públicos, precedencia de datos guardados, tipos, normalización, correcciones, CSRF, GET sin escrituras, asociación y selección del cliente, duplicados, clientes archivados, permisos, aislamiento, contexto cifrado, creación de tarea sin cuerpo y doble envío. `tests/test_client_domains_migration.py` comprueba preservación, defaults, repetición, unicidad por organización, restricciones, rollback y rechazo de esquemas incompatibles. Microsoft está simulado en todas estas pruebas.

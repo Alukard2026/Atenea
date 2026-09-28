@@ -1,0 +1,27 @@
+<input type="hidden" name="intent" value="{{ data.intent }}">
+<section aria-labelledby="detected-company">
+  <h2 id="detected-company">Empresa / Institución detectada</h2>
+  {% set suggestion = mail_context.suggestion %}
+  {% if mail_context.created %}<p class="notice" role="status">Cliente seleccionado. Revisa la tarea y pulsa Crear tarea para guardarla.</p>{% endif %}
+  {% if suggestion.public_provider %}
+    <p>El remitente utiliza un proveedor de correo público. Selecciona el cliente manualmente.</p>
+  {% elif suggestion.domain %}
+    <p><strong>{{ suggestion.name }}</strong> — {{ client_types[suggestion.client_type] }} — detectado por @{{ suggestion.domain }}</p>
+    {% if suggestion.client %}
+      {% if not suggestion.client.is_active %}<p class="alert">Este cliente está archivado. Un administrador debe reactivarlo. No se creará un duplicado.</p>
+      {% else %}<p>Cliente existente en tu organización. Puedes cambiar la selección en la tarea.</p>{% endif %}
+    {% else %}
+      <p>No existe todavía en Atenea</p>
+      {% if user.role == 'admin' %}
+      <details><summary>Crear cliente/institución a partir del remitente</summary>
+        <label for="new_client_name">Nombre sugerido</label><input id="new_client_name" name="new_client_name" maxlength="255" value="{{ data.new_client_name }}">
+        <label for="email_domain">Dominio del remitente</label><input id="email_domain" name="email_domain" readonly value="{{ suggestion.domain }}">
+        <label for="new_client_type">Tipo</label><select id="new_client_type" name="new_client_type">{% for value, label in client_types.items() %}<option value="{{ value }}" {% if data.new_client_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+        <p class="field-help">Revisa y corrige el nombre. Este botón confirma únicamente la creación del cliente; la tarea aún no se guarda.</p>
+        <button class="quiet-button" name="action" value="create_client" type="submit" formnovalidate>Crear cliente/institución</button>
+      </details>
+      {% else %}<p>Solicita a un administrador que cree el cliente o selecciona uno existente.</p>{% endif %}
+    {% endif %}
+  {% else %}<p>No se pudo identificar un dominio válido. Selecciona el cliente manualmente.</p>{% endif %}
+  <p class="field-help">La sugerencia se basa en el dominio, no verifica la autenticidad del remitente. El cuerpo del correo no se copia a la tarea.</p>
+</section>

@@ -98,9 +98,25 @@ def create_client(db: Session, user: User, data, client_id: int | None = None):
     client = organization_client(db, user, client_id) if client_id is not None else None
     name = clean_text(data, "name", "el nombre del cliente", 255, required=True)
     code = clean_text(data, "code", "el código", 50)
+    from app.client_domains import CLIENT_TYPES, is_public_domain, normalize_domain
+    try:
+        domain = normalize_domain(data.get("email_domain", client.email_domain if client else None))
+    except ValueError as error:
+        raise FormError("email_domain", str(error)) from None
+    if is_public_domain(domain):
+        raise FormError("email_domain", "No asocies un proveedor de correo público a un cliente. Deja el dominio vacío.")
+    client_type = data.get("client_type", client.client_type if client else "otro")
+    if client_type not in CLIENT_TYPES:
+        raise FormError("client_type", "Selecciona un tipo de cliente válido.")
     # Este bloqueo transaccional evita altas duplicadas concurrentes desde la web.
     # No sustituye a restricciones únicas para futuros escritores SQL externos.
     db.execute(select(func.pg_advisory_xact_lock(41001, user.organization_id)))
+    if domain:
+        domain_query = select(Client.id).where(Client.organization_id == user.organization_id, Client.email_domain == domain)
+        if client is not None:
+            domain_query = domain_query.where(Client.id != client.id)
+        if db.scalar(domain_query.limit(1)) is not None:
+            raise FormError("email_domain", "Ese dominio ya está asociado a un cliente de tu organización, incluidos los inactivos.")
     duplicate = normalized(Client.name) == normalized(name)
     if code:
         duplicate = or_(duplicate, normalized(Client.code) == normalized(code))
@@ -113,6 +129,7 @@ def create_client(db: Session, user: User, data, client_id: int | None = None):
         client = Client(organization_id=user.organization_id, is_active=True)
         db.add(client)
     client.name, client.code = name, code
+    client.email_domain, client.client_type = domain, client_type
     return client
 
 

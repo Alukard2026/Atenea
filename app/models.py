@@ -24,9 +24,44 @@ from sqlalchemy import (
     func,
     true,
 )
-from sqlalchemy.orm import relationship, validates
+from sqlalchemy.orm import deferred, relationship, validates
 
 from app.database import Base
+
+
+class MicrosoftAccount(Base):
+    __tablename__ = "microsoft_accounts"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "user_id", name="uq_microsoft_accounts_owner"),
+        ForeignKeyConstraint(["organization_id", "user_id"], ["users.organization_id", "users.id"], name="fk_microsoft_accounts_owner"),
+        CheckConstraint("NOT is_active OR token_cache_encrypted IS NOT NULL", name="ck_microsoft_accounts_cache"),
+    )
+    id = Column(Integer, primary_key=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    user_id = Column(Integer, nullable=False)
+    microsoft_account_id = Column(String(255), nullable=False)
+    principal_name = Column(String(320), nullable=False)
+    email = Column(String(320), nullable=True)
+    display_name = Column(String(255), nullable=True)
+    tenant_id = Column(String(255), nullable=True)
+    connected_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    is_active = Column(Boolean, nullable=False, server_default=true())
+    token_cache_encrypted = deferred(Column(Text, nullable=True), raiseload=True)
+
+
+class MicrosoftOAuthFlow(Base):
+    """Un único intento pendiente por propietario; nunca guardar el flujo en la cookie."""
+    __tablename__ = "microsoft_oauth_flows"
+    __table_args__ = (
+        ForeignKeyConstraint(["organization_id", "user_id"], ["users.organization_id", "users.id"], name="fk_microsoft_oauth_flows_owner"),
+    )
+    organization_id = Column(Integer, ForeignKey("organizations.id"), primary_key=True)
+    user_id = Column(Integer, primary_key=True)
+    state_hash = Column(String(64), nullable=False)
+    session_hash = Column(String(64), nullable=False)
+    flow_encrypted = Column(Text, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
 
 
 class Organization(Base):
@@ -93,12 +128,23 @@ class Client(Base):
     __tablename__ = "clients"
     __table_args__ = (
         UniqueConstraint("organization_id", "id", name="uq_clients_org_id"),
+        UniqueConstraint("organization_id", "email_domain", name="uq_clients_org_email_domain"),
+        CheckConstraint("client_type IN ('empresa', 'institucion_publica', 'otro')", name="ck_clients_type"),
+        CheckConstraint("email_domain IS NULL OR (email_domain = lower(btrim(email_domain)) AND email_domain ~ '^[a-z0-9][a-z0-9.-]*[.][a-z0-9-]+$')", name="ck_clients_email_domain"),
     )
 
     id = Column(Integer, primary_key=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     code = Column(String(50), nullable=True)
+    email_domain = Column(String(253), nullable=True)
+    client_type = Column(String(30), nullable=False, server_default="otro")
+
+    @validates("email_domain")
+    def validate_email_domain(self, key, value):
+        from app.client_domains import normalize_domain
+        return normalize_domain(value)
+
     is_active = Column(Boolean, nullable=False, server_default=true())
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

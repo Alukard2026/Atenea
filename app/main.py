@@ -20,6 +20,10 @@ from app.routers.work import router as work_router
 from app.routers.settings import router as settings_router
 from app.routers.reports import router as reports_router
 from app.routers.tasks import router as tasks_router
+from app.routers.microsoft import router as microsoft_router
+from app.routers.mail import router as mail_router
+from app.routers.mail_tasks import router as mail_tasks_router
+from app.microsoft import configure_safe_logging
 from app.tasks import dashboard_summary
 from app.timezones import organization_zone
 from app.security import hash_password
@@ -29,8 +33,10 @@ from app.worklog import current_month_total, current_week_total
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings if settings is not None else load_settings()
+    configure_safe_logging()
     app = FastAPI(title="Atenea", debug=False, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.task_zone = ZoneInfo(settings.app_timezone)
+    app.state.settings = settings
     app.state.dummy_password_hash = hash_password(secrets.token_urlsafe(32))
     app.add_middleware(
         SessionMiddleware,
@@ -53,9 +59,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
+        # Chromium comprueba form-action también tras el 303 del POST OAuth.
+        form_action = "'self'"
+        if request.url.path in {"/integrations/microsoft", "/integrations/microsoft/connect"}:
+            form_action += " https://login.microsoftonline.com"
         response.headers["Content-Security-Policy"] = (
             "default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self'; "
-            "form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+            f"form-action {form_action}; frame-ancestors 'none'; base-uri 'none'"
         )
         return response
 
@@ -81,6 +91,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(settings_router)
     app.include_router(reports_router)
     app.include_router(tasks_router)
+    app.include_router(microsoft_router)
+    app.include_router(mail_router)
+    app.include_router(mail_tasks_router)
 
     @app.get("/", include_in_schema=False)
     def index():

@@ -25,7 +25,7 @@ except (ArgumentError, ValueError):
 if connection_url.get_backend_name() != "postgresql":
     raise RuntimeError("DATABASE_URL en .env debe usar PostgreSQL.")
 
-engine = create_engine(connection_url, pool_pre_ping=True, echo=False)
+engine = create_engine(connection_url, pool_pre_ping=True, echo=False, hide_parameters=True)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
 

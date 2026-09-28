@@ -1,0 +1,5 @@
+<label for="email_domain">Dominio de correo <span class="muted">(opcional)</span></label>
+<input id="email_domain" name="email_domain" maxlength="253" value="{{ data.get('email_domain', '') }}" placeholder="empresa.com">
+<p class="field-help">Sin @ ni protocolo. No utilices dominios públicos como Gmail u Outlook.</p>
+<label for="client_type">Tipo</label>
+<select id="client_type" name="client_type">{% for value, label in client_types.items() %}<option value="{{ value }}" {% if data.get('client_type', 'otro') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>

@@ -16,6 +16,11 @@ class Settings:
     session_cookie_secure: bool = False
     session_max_age: int = 8 * 60 * 60
     app_timezone: str = "America/Guatemala"
+    microsoft_client_id: str = field(default="", repr=False)
+    microsoft_client_secret: str = field(default="", repr=False)
+    microsoft_tenant: str = field(default="", repr=False)
+    microsoft_redirect_uri: str = field(default="", repr=False)
+    token_encryption_key: str = field(default="", repr=False)
 
     def __post_init__(self):
         if len(self.session_secret.strip()) < 32:
@@ -35,4 +40,8 @@ def load_settings() -> Settings:
         session_secret=values.get("SESSION_SECRET") or "",
         session_cookie_secure=secure == "true",
         app_timezone=(values.get("APP_TIMEZONE") or "America/Guatemala").strip(),
+        **{name: (values.get(name.upper()) or "").strip() for name in (
+            "microsoft_client_id", "microsoft_client_secret", "microsoft_tenant",
+            "microsoft_redirect_uri", "token_encryption_key",
+        )},
     )

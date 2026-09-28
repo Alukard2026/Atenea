@@ -1,0 +1,17 @@
+{% extends "workspace.html" %}
+{% block title %}Correo · Atenea{% endblock %}
+{% block content %}
+<section class="module-page mail-page">
+  <p class="eyebrow">MICROSOFT · CORREO</p><h1>Mi correo</h1>
+  <div class="card form-card">
+    <h2>{{ 'Microsoft no conectado' if error.kind == 'disconnected' else 'No se pudo consultar el correo' }}</h2>
+    <p role="{{ 'status' if error.kind == 'disconnected' else 'alert' }}">{{ error.message }}</p>
+    {% if error.retry_after is not none %}<p>Espera al menos {{ error.retry_after }} segundos antes de reintentar.</p>{% endif %}
+    <div class="form-actions">
+      {% if error.kind in ['disconnected', 'reconnect', 'forbidden'] %}<a class="button-link" href="/integrations/microsoft">{{ 'Conectar Microsoft' if error.kind == 'disconnected' else 'Revisar conexión Microsoft' }}</a>{% endif %}
+      {% if error.kind in ['timeout', 'unavailable', 'throttled', 'response'] %}<a class="button-link secondary" href="{{ retry_url }}">Volver a intentar</a>{% endif %}
+      {% if error.kind != 'disconnected' %}<a class="text-link" href="/mail">Volver al inicio del correo</a>{% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}
