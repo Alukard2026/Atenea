@@ -1,21 +1,38 @@
 {% extends "base.html" %}
 {% block navigation %}
-<nav class="workspace-nav" aria-label="Navegación principal">
-  <a href="/mail" {% if request.url.path == '/mail' or request.url.path.startswith('/mail/') %}aria-current="page"{% endif %}>Correo</a>
-  <a href="/integrations/microsoft" {% if request.url.path.startswith('/integrations/microsoft') %}aria-current="page"{% endif %}>Microsoft</a>
-  <a href="/tasks" {% if request.url.path.startswith('/tasks') %}aria-current="page"{% endif %}>Tareas</a>
-  <a href="/dashboard" {% if request.url.path == '/dashboard' %}aria-current="page"{% endif %}>Inicio</a>
-  <a href="/hours" {% if request.url.path == '/hours' %}aria-current="page"{% endif %}>Registrar horas</a>
-  <a href="/hours/history" {% if request.url.path == '/hours/history' %}aria-current="page"{% endif %}>Histórico mensual</a>
-  <a href="/hours/week" {% if request.url.path == '/hours/week' %}aria-current="page"{% endif %}>Mi semana</a>
-  <a href="/reports/month" {% if request.url.path.startswith('/reports/') %}aria-current="page"{% endif %}>Informes</a>
-  <a href="/clients" {% if request.url.path == '/clients' %}aria-current="page"{% endif %}>Clientes</a>
-  <a href="/projects" {% if request.url.path == '/projects' %}aria-current="page"{% endif %}>Proyectos / Expedientes</a>
-  {% if user.role == 'admin' %}<a href="/settings/workdays" {% if request.url.path == '/settings/workdays' %}aria-current="page"{% endif %}>Días laborables</a>{% endif %}
-  {% if user.role == 'admin' %}<a href="/settings/timezone" {% if request.url.path == '/settings/timezone' %}aria-current="page"{% endif %}>Zona horaria</a>{% endif %}
+{% set path = request.url.path %}
+<button type="button" class="quiet-button mobile-menu-toggle" aria-expanded="false" aria-controls="workspace-navigation" hidden>Menú <span aria-hidden="true">☰</span></button>
+<nav id="workspace-navigation" class="workspace-nav" aria-label="Navegación principal">
+  <a href="/dashboard" {% if path == '/dashboard' %}aria-current="page"{% endif %}>Inicio</a>
+  {% set groups = [
+    ('Trabajo', [('Tareas', '/tasks', path.startswith('/tasks')), ('Registrar horas', '/hours', path == '/hours' or (path.startswith('/hours/') and path not in ['/hours/history', '/hours/week'])), ('Historial de horas', '/hours/history', path == '/hours/history')]),
+    ('Correo', [('Bandeja de correo', '/mail', path == '/mail' or path.startswith('/mail/')), ('Conexión Microsoft', '/integrations/microsoft', path.startswith('/integrations/microsoft'))]),
+    ('Clientes', [('Clientes', '/clients', path.startswith('/clients')), ('Proyectos / Expedientes', '/projects', path.startswith('/projects'))]),
+    ('Reportes', [('Reporte semanal', '/hours/week', path == '/hours/week'), ('Reporte mensual', '/reports/month', path.startswith('/reports/'))])
+  ] %}
+  {% if user.role == 'admin' %}{% set groups = groups + [('Configuración', [('Días laborables', '/settings/workdays', path == '/settings/workdays'), ('Zona horaria', '/settings/timezone', path == '/settings/timezone')])] %}{% endif %}
+  {% for name, links in groups %}
+  {% set active = links | selectattr('2') | list %}
+  <div class="nav-group{% if active %} nav-active{% endif %}">
+    <button type="button" class="nav-trigger" aria-expanded="true" aria-controls="nav-group-{{ loop.index }}">{{ name }} <span aria-hidden="true">▾</span></button>
+    <div id="nav-group-{{ loop.index }}" class="nav-submenu">
+      {% for label, href, selected in links %}<a href="{{ href }}" {% if selected %}aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+  <a href="/notifications" id="notification-link" data-notification-scope="{{ user.organization_id }}:{{ user.id }}" {% if path.startswith('/notifications') %}aria-current="page"{% endif %}>
+    <span aria-hidden="true">&#128276;</span> Avisos <span id="notification-count" class="badge" hidden></span><span class="sr-only" id="notification-count-label"></span>
+  </a>
+  <form action="/logout" method="post" class="logout-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="quiet-button" type="submit">Cerrar sesión</button>
+  </form>
 </nav>
-<form action="/logout" method="post" class="logout-form">
-  <input type="hidden" name="csrf" value="{{ csrf_token }}">
-  <button class="quiet-button" type="submit">Cerrar sesión</button>
-</form>
+{% endblock %}
+{% block notices %}
+<aside id="notification-banner" class="notice notification-banner" hidden aria-label="Recordatorios pendientes">
+  <span role="status">Tienes recordatorios que requieren atención.</span>
+  <a href="/notifications">Revisar notificaciones</a>
+  <button type="button" id="dismiss-notification" class="quiet-button" aria-label="Ocultar aviso de recordatorios">Cerrar</button>
+</aside>
 {% endblock %}

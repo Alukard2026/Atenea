@@ -242,8 +242,8 @@ def month_url(month: str, filters=None):
     return "/hours/history?" + urlencode({"month": month, **{k: v for k, v in (filters or {}).items() if v}})
 
 
-def current_month_total(db: Session, user: User):
-    first, end = month_bounds()
+def current_month_total(db: Session, user: User, *, today=None):
+    first, end = month_bounds(today.strftime("%Y-%m") if today is not None else "")
     return db.scalar(select(func.coalesce(func.sum(TimeEntry.hours), 0)).where(
         TimeEntry.organization_id == user.organization_id, TimeEntry.user_id == user.id,
         TimeEntry.work_date >= first, TimeEntry.work_date < end,
@@ -299,8 +299,8 @@ def monday_for(day: date):
     return day - timedelta(days=day.weekday())
 
 
-def current_week_total(db: Session, user: User):
-    monday = monday_for(date.today())
+def current_week_total(db: Session, user: User, *, today=None):
+    monday = monday_for(today if today is not None else date.today())
     return db.scalar(select(func.coalesce(func.sum(TimeEntry.hours), 0)).where(
         TimeEntry.organization_id == user.organization_id, TimeEntry.user_id == user.id,
         TimeEntry.work_date >= monday, TimeEntry.work_date <= monday + timedelta(days=6),

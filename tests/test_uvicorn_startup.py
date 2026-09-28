@@ -53,7 +53,7 @@ with patch('app.config.ENV_PATH', Path(ENV_FILE_PLACEHOLDER)):
             for path in ("/integrations/microsoft", "/integrations/microsoft/callback?state=invalid&code=mock", "/mail", "/mail/mock-message", "/mail/mock-message/create-task"):
                 with urlopen(f"http://127.0.0.1:{port}{path}", timeout=2) as response:
                     self.assertTrue(response.url.endswith("/login"))
-            for path in ("/dashboard", "/clients", "/projects", "/hours", "/hours/week", "/hours/history", "/settings/workdays", "/settings/timezone", "/reports/month", "/reports/week/export", "/reports/month/export", "/tasks", "/tasks/new"):
+            for path in ("/dashboard", "/notifications", "/notifications/status", "/clients", "/projects", "/hours", "/hours/week", "/hours/history", "/settings/workdays", "/settings/timezone", "/reports/month", "/reports/week/export", "/reports/month/export", "/tasks", "/tasks/new"):
                 with urlopen(f"http://127.0.0.1:{port}{path}", timeout=2) as response:
                     self.assertTrue(response.url.endswith("/login"))
         finally:

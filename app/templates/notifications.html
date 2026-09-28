@@ -1,0 +1,43 @@
+{% extends "workspace.html" %}
+{% block title %}Notificaciones · Atenea{% endblock %}
+{% block content %}
+<section class="module-page">
+  <p class="eyebrow">TU TRABAJO, A TIEMPO</p>
+  <h1>Notificaciones</h1>
+  <p class="intro">Recordatorios de tus tareas pendientes.</p>
+  <p class="muted">{{ notification_status.overdue }} vencidos · {{ notification_status.pending }} requieren atención · {{ total }} en total. Zona: {{ zone.key }}.</p>
+  <p class="field-help">Primero vencidos, después urgentes y fecha más próxima. «Mañana» pospone hasta las 09:00 en tu organización. Para otra fecha, abre la tarea.</p>
+  {% for row in rows %}{% set task = row.task %}
+  <article class="card task-card">
+    <div class="task-heading">
+      <h2><a class="text-link" href="/tasks/{{ task.id }}/edit">{{ task.title }}</a></h2>
+      <span class="badge {% if row.category == 'Vencido' %}task-overdue{% endif %}">{{ row.category }}</span>
+    </div>
+    <div class="task-meta">
+      <time datetime="{{ task.reminder_at.isoformat() }}">{{ row.when.strftime('%d/%m/%Y %H:%M') }}</time>
+      <span class="badge priority-{{ task.priority }}">{{ priorities[task.priority] }}</span>
+      <span>{{ statuses[task.status] }}</span>
+      {% if task.client %}<span>{{ task.client.name }}</span>{% endif %}
+      {% if task.project %}<span>{{ task.project.name }}</span>{% endif %}
+    </div>
+    <div class="task-actions">
+      <form method="post" action="/notifications/{{ task.id }}/snooze" aria-label="Posponer {{ task.title }}">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <button class="quiet-button" name="delay" value="15m">Posponer 15 minutos</button>
+        <button class="quiet-button" name="delay" value="1h">Posponer 1 hora</button>
+        <button class="quiet-button" name="delay" value="tomorrow">Hasta mañana, 09:00</button>
+      </form>
+      <form method="post" action="/notifications/{{ task.id }}/complete">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <button class="quiet-button">Completar tarea</button>
+      </form>
+    </div>
+  </article>
+  {% else %}<div class="card single-panel"><h2>Sin recordatorios pendientes</h2><p>Puedes añadir fecha y hora de recordatorio al <a href="/tasks/new">crear una tarea</a>.</p></div>{% endfor %}
+  {% if pages > 1 %}<nav class="history-navigation" aria-label="Páginas de notificaciones">
+    {% if page > 1 %}<a href="/notifications?page={{ page - 1 }}">Anterior</a>{% endif %}
+    <span>Página {{ page }} de {{ pages }}</span>
+    {% if page < pages %}<a href="/notifications?page={{ page + 1 }}">Siguiente</a>{% endif %}
+  </nav>{% endif %}
+</section>
+{% endblock %}

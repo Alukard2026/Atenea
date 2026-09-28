@@ -1,6 +1,7 @@
 """Arranque: python -m uvicorn app.main:create_app --factory --reload."""
 
 import logging
+from datetime import datetime
 from pathlib import Path
 import secrets
 from typing import Annotated
@@ -23,8 +24,12 @@ from app.routers.tasks import router as tasks_router
 from app.routers.microsoft import router as microsoft_router
 from app.routers.mail import router as mail_router
 from app.routers.mail_tasks import router as mail_tasks_router
+from app.routers.notifications import router as notifications_router
+from app import notifications
+from app.models import MicrosoftAccount, Task
+from sqlalchemy import select, func
 from app.microsoft import configure_safe_logging
-from app.tasks import dashboard_summary
+from app.tasks import dashboard_summary, aware_now
 from app.timezones import organization_zone
 from app.security import hash_password
 from app.web_auth import DatabaseSession, csrf_token, get_current_user
@@ -64,7 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if request.url.path in {"/integrations/microsoft", "/integrations/microsoft/connect"}:
             form_action += " https://login.microsoftonline.com"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self'; "
+            "default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self'; connect-src 'self'; "
             f"form-action {form_action}; frame-ancestors 'none'; base-uri 'none'"
         )
         return response
@@ -94,6 +99,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(microsoft_router)
     app.include_router(mail_router)
     app.include_router(mail_tasks_router)
+    app.include_router(notifications_router)
 
     @app.get("/", include_in_schema=False)
     def index():
@@ -101,10 +107,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/dashboard", response_class=HTMLResponse)
     def dashboard(request: Request, user: Annotated[User, Depends(get_current_user)], db: DatabaseSession):
+        zone = organization_zone(user.organization, app.state.task_zone)
+        now = aware_now()
+        local_day = now.astimezone(zone).date()
+        reminder_status = notifications.status(db, user, now)
         return templates.TemplateResponse(
             request=request, name="dashboard.html",
-            context={"user": user, "csrf_token": csrf_token(request), "week_total": current_week_total(db, user),
-                     "month_total": current_month_total(db, user), "task_summary": dashboard_summary(db, user, organization_zone(user.organization, app.state.task_zone))},
+            context={"user": user, "csrf_token": csrf_token(request), "week_total": current_week_total(db, user, today=local_day),
+                     "month_total": current_month_total(db, user, today=local_day), "task_summary": dashboard_summary(db, user, zone, now),
+                     "notification_status": reminder_status,
+                     "next_reminder": datetime.fromisoformat(reminder_status["next_at"]).astimezone(zone) if reminder_status["next_at"] else None,
+                     "pending_tasks": db.scalar(select(func.count()).select_from(Task).where(Task.organization_id == user.organization_id, Task.user_id == user.id, Task.status == "pending")),
+                     "microsoft_connected": db.scalar(select(MicrosoftAccount.id).where(MicrosoftAccount.organization_id == user.organization_id, MicrosoftAccount.user_id == user.id, MicrosoftAccount.is_active.is_(True))) is not None},
         )
 
     return app

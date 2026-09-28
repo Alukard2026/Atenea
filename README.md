@@ -408,3 +408,59 @@ No se autentica una empresa por su dominio remitente: una dirección puede ser s
 Este repositorio no contenía un flujo anterior de Fase 1C al implementar esta ampliación. El alcance añadido es el formulario manual descrito aquí; no se presupone ninguna otra funcionalidad de una especificación de Fase 1C no incluida.
 
 `tests/test_mail_tasks.py` comprueba los mappings, proveedores públicos, precedencia de datos guardados, tipos, normalización, correcciones, CSRF, GET sin escrituras, asociación y selección del cliente, duplicados, clientes archivados, permisos, aislamiento, contexto cifrado, creación de tarea sin cuerpo y doble envío. `tests/test_client_domains_migration.py` comprueba preservación, defaults, repetición, unicidad por organización, restricciones, rollback y rechazo de esquemas incompatibles. Microsoft está simulado en todas estas pruebas.
+
+## Fase 1D: recordatorios activos y navegación
+
+El centro **Avisos** (`GET /notifications`) muestra únicamente tareas propias pendientes con `reminder_at`: título, cliente/proyecto, fecha/hora local, prioridad y estado. Clasifica cada recordatorio como **Vencido**, **Hoy** o **Próximo**, según la zona IANA configurada por la organización. Ordena primero vencidos, después urgentes dentro de cada grupo y luego fecha/hora e ID. Pagina a 30 filas, sin descartar recordatorios futuros. Las tareas completadas, canceladas o sin recordatorio dejan de aparecer.
+
+La campana muestra los vencidos y los que están programados hasta dentro de **15 minutos**, incluyendo el instante actual; el badge se limita visualmente a `9+`. `GET /notifications/status` devuelve exclusivamente `pending` (cantidad que requiere atención), `overdue` y `next_at` (próximo instante en ISO 8601 UTC, o null). No devuelve IDs, títulos, cuerpos, clientes ni información de Microsoft. Tanto el centro como el contador validan la sesión, el usuario activo y la organización activa. Un administrador tampoco accede a recordatorios ajenos. Los parámetros de propietario se rechazan; el ámbito siempre sale de la sesión.
+
+Las acciones tienen POST + CSRF y bloqueo de la tarea propietaria:
+
+- `POST /notifications/{task_id}/snooze`, con `delay=15m`, `1h` o `tomorrow`, actualiza únicamente `reminder_at`. Los minutos/horas se cuentan desde el momento de pulsar. **Mañana** significa las **09:00 del siguiente día civil en la organización**, teniendo en cuenta el cambio estacional. No cambia el vencimiento de la tarea. Para elegir otra fecha/hora, abre el título y edita su recordatorio en el formulario existente.
+- `POST /notifications/{task_id}/complete` reutiliza `tasks.set_status`: completa la ocurrencia y genera su sucesora con las reglas existentes. Repetir el completado no crea otra sucesora. Una tarea cancelada no puede completarse desde un aviso antiguo.
+
+Posponer 15 minutos puede mantener el badge: el recordatorio queda dentro de la ventana de próximos 15 minutos, pero ya no está vencido. En tareas recurrentes se conserva el comportamiento previo: la sucesora calcula su recordatorio a partir del recordatorio actual de la ocurrencia, incluido un snooze realizado antes de completar.
+
+`app/static/workspace.js` consulta el estado al abrir una pantalla autenticada y después cada **60 segundos**, con timeout de 10 segundos, sin peticiones solapadas y sin consultar mientras la pestaña está oculta. Una sesión caducada detiene el polling; un fallo temporal espera al siguiente ciclo. La CSP permite únicamente conexiones al mismo origen. No hay WebSockets, scheduler, push ni llamadas a Graph para estas notificaciones.
+
+El banner es genérico, discreto y se puede cerrar. Para no repetirlo al navegar o recargar, `sessionStorage` guarda solo la marca «mostrado», separada por usuario y organización, **sin contenido de tareas ni credenciales**. Se muestra una vez por episodio con recordatorios que requieren atención; se habilita de nuevo después de que el contador llegue a cero. Abrir el centro también cuenta como haber visto el aviso. El contador sigue actualizándose aunque el banner esté cerrado. Limitación deliberada: la marca es por pestaña, no se sincroniza entre dispositivos; los recordatorios añadidos durante el mismo episodio actualizan el contador sin abrir otro banner. Si el navegador bloquea storage, solo se evita la repetición dentro de la página actual. Sin JavaScript siguen funcionando el centro, los enlaces y las acciones, pero no el contador ni el banner automático.
+
+**No se requiere migración**: se reutilizan `tasks.reminder_at`, su índice existente y la lógica de tareas. Los GET no modifican la base. No se añaden dependencias de producción, variables `.env`, permisos de Microsoft ni cambios a datos existentes.
+
+### Navegación y dashboard
+
+La navegación queda agrupada en **Inicio**, **Trabajo** (tareas, registrar horas, historial), **Correo** (bandeja y conexión Microsoft), **Clientes** (clientes y proyectos), **Reportes** (vista semanal existente con exportación y reporte mensual), **Configuración** (días laborables y zona horaria, solo administradores), **Avisos** y cierre de sesión. El backend mantiene sus controles de permisos. Se resalta el grupo activo y el enlace actual con `aria-current`.
+
+Los menús usan botones con `aria-expanded`/`aria-controls`, Tab, Enter/Espacio y Escape, foco visible y cierre al salir de la navegación. Hasta 1100 px se utiliza un botón **Menú** y submenús verticales; en escritorio son desplegables. Sin JavaScript los destinos permanecen visibles. No se incorporó framework ni SPA.
+
+El dashboard conserva el estilo de Atenea con seis tarjetas enlazadas: tareas pendientes, vencidas, recordatorios/próxima hora, horas semanales, horas mensuales y estado local de la conexión Microsoft. Los períodos del dashboard se calculan con la fecha de la organización; comprobar la conexión no consulta Graph ni carga tokens. «Conectado» refleja la conexión local activa: no verifica en tiempo real si Microsoft exige volver a autenticarse.
+
+### Validación y archivos de la fase
+
+Archivos creados:
+
+- `app/notifications.py`, `app/routers/notifications.py`.
+- `app/templates/notifications.html`, `app/static/workspace.js`.
+- `tests/test_notifications.py`, `tests/notification_browser_fixture.py`, `tests/check_notifications_browser.py`.
+
+Archivos modificados: `app/main.py`, `app/worklog.py`, `app/templates/base.html`, `app/templates/workspace.html`, `app/templates/dashboard.html`, `app/static/styles.css`, `tests/test_uvicorn_startup.py` y este `README.md`.
+
+Se añadieron **21 pruebas** de autenticación, aislamiento entre usuarios/organizaciones incluso para admins, límites del contador, clasificación/orden, zona horaria y DST, las tres opciones de snooze, CSRF, campos manipulados, completado idempotente/recurrencia, paginación, GET sin escrituras, respuestas mínimas, navegación/permisos y dashboard. La suite completa conserva las pruebas anteriores de Microsoft, correo, tareas, clientes, proyectos, horas y reportes: **280 pruebas aprobadas**. `pip check`: **No broken requirements found**. La prueba de arranque inicia un Uvicorn real y verifica también la protección de `/notifications` y `/notifications/status`.
+
+Validación adicional en Chromium: **14 escenarios aprobados**, incluyendo usuarios normales y administradores en 1440, 1101, 1024, 768, 390 y 320 px; ausencia de overflow horizontal, menús por teclado, estados activos, badge `9+`, supresión del banner tras recargar, polling de 60 segundos y funcionamiento sin JavaScript. Se usan templates reales con datos sintéticos, endpoints de polling simulados y rollback de las filas de prueba; no se contacta Microsoft. No se ha validado en Safari/Firefox ni con lector de pantalla.
+
+Para repetir las comprobaciones en PowerShell desde Atenea:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -q
+.\.venv\Scripts\python.exe -m pip check
+```
+
+La comprobación visual opcional necesita Playwright y Chromium en el intérprete que la ejecute (no son dependencias de Atenea). En este equipo están disponibles en el Python general:
+
+```powershell
+python tests/check_notifications_browser.py
+```
+
+Prueba manual: reinicia Uvicorn; entra en **Trabajo → Tareas**, crea una tarea con recordatorio unos minutos en el pasado y abre **Avisos**. Comprueba su clasificación, pospón una hora y verifica la nueva hora y el contador. Prueba «mañana» frente a la zona de **Configuración → Zona horaria**. Completa otra tarea recurrente y verifica que exista una sola sucesora. Recarga/navega para confirmar que el banner no se repita. En otra sesión de usuario u organización, comprueba que la tarea no aparezca. Reduce la ventana a móvil, abre Menú y prueba Tab/Enter/Escape. No se necesitan cambios en Entra ni `.env`.
