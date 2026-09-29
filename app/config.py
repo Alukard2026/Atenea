@@ -21,6 +21,10 @@ class Settings:
     microsoft_tenant: str = field(default="", repr=False)
     microsoft_redirect_uri: str = field(default="", repr=False)
     token_encryption_key: str = field(default="", repr=False)
+    ai_enabled: bool = False
+    ai_provider: str = "openai"
+    openai_api_key: str = field(default="", repr=False)
+    openai_model: str = field(default="", repr=False)
 
     def __post_init__(self):
         if len(self.session_secret.strip()) < 32:
@@ -39,6 +43,10 @@ def load_settings() -> Settings:
     return Settings(
         session_secret=values.get("SESSION_SECRET") or "",
         session_cookie_secure=secure == "true",
+        ai_enabled=(values.get("AI_ENABLED") or "false").strip().lower() == "true",
+        ai_provider=(values.get("AI_PROVIDER") or "openai").strip().lower(),
+        openai_api_key=(values.get("OPENAI_API_KEY") or "").strip(),
+        openai_model=(values.get("OPENAI_MODEL") or "").strip(),
         app_timezone=(values.get("APP_TIMEZONE") or "America/Guatemala").strip(),
         **{name: (values.get(name.upper()) or "").strip() for name in (
             "microsoft_client_id", "microsoft_client_secret", "microsoft_tenant",

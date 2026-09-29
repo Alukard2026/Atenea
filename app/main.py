@@ -24,6 +24,7 @@ from app.routers.tasks import router as tasks_router
 from app.routers.microsoft import router as microsoft_router
 from app.routers.mail import router as mail_router
 from app.routers.mail_tasks import router as mail_tasks_router
+from app.routers.mail_ai import router as mail_ai_router
 from app.routers.notifications import router as notifications_router
 from app import notifications
 from app.models import MicrosoftAccount, Task
@@ -99,6 +100,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(microsoft_router)
     app.include_router(mail_router)
     app.include_router(mail_tasks_router)
+    app.include_router(mail_ai_router)
     app.include_router(notifications_router)
 
     @app.get("/", include_in_schema=False)

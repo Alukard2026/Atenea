@@ -1,6 +1,19 @@
 /* Navegación accesible y contador privado; sin contenido de tareas en storage. */
 (() => {
   'use strict';
+  document.querySelectorAll('.ai-analyze-form').forEach(form => {
+    window.addEventListener('pageshow', () => {
+      delete form.dataset.submitting;
+      form.querySelector('button').disabled = false;
+      form.querySelector('.ai-loading').hidden = true;
+    });
+    form.addEventListener('submit', event => {
+      if (form.dataset.submitting) { event.preventDefault(); return; }
+      form.dataset.submitting = 'true';
+      form.querySelector('button').disabled = true;
+      form.querySelector('.ai-loading').hidden = false;
+    });
+  });
   const nav = document.getElementById('workspace-navigation');
   if (!nav) return;
   const mobile = document.querySelector('.mobile-menu-toggle');

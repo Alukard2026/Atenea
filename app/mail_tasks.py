@@ -1,4 +1,4 @@
-"""Creación manual de tareas desde metadatos del correo; nunca obtiene su cuerpo."""
+"""Tareas desde metadatos y preview limitado; nunca obtiene el cuerpo completo."""
 
 import json
 import time
@@ -7,7 +7,7 @@ from urllib.parse import quote
 from fastapi import HTTPException
 from sqlalchemy import func, select
 
-from app import mail, microsoft, tasks, worklog
+from app import mail, mail_rules, microsoft, tasks, worklog
 from app.graph import GRAPH_ROOT, GraphError
 from app.models import Client, MicrosoftAccount, Task
 
@@ -38,14 +38,12 @@ def validate_context(client, identity, csrf, token):
 def message_metadata(client, identity):
     identity = mail.message_id(identity)
     payload = client.get(GRAPH_ROOT + "/me/messages/" + quote(identity, safe=""),
-                         params={"$select": "id,subject,from,importance"}, endpoint="message")
+                         params={"$select": "id,subject,from,bodyPreview"}, endpoint="message")
     if payload.get("id") != identity:
         raise GraphError("response")
-    sender = payload.get("from") or {}
-    address = (sender.get("emailAddress") or {}) if isinstance(sender, dict) else {}
-    return {"subject": mail.text(payload.get("subject"), 255) or "Correo sin asunto",
-            "sender": address.get("address", "") if isinstance(address, dict) else "",
-            "priority": payload.get("importance") if payload.get("importance") in {"low", "normal", "high"} else "normal"}
+    features = mail_rules.message_input(payload)
+    return {"subject": features.subject[:255] or "Correo sin asunto", "sender": features.sender_email,
+            "rule_input": features}
 
 
 def lock_connection(client):

@@ -1,4 +1,10 @@
 <input type="hidden" name="intent" value="{{ data.intent }}">
+{% if mail_context.from_ai %}<p class="notice">Formulario prellenado con una sugerencia de IA. Revisa y modifica todos los campos antes de confirmar. El cliente procede del dominio registrado, no del nombre propuesto por la IA.</p>{% endif %}
+<details class="mail-rule-context">
+  <summary>Prioridad sugerida: {{ mail_context.analysis.priority_label }} · Ver análisis por reglas</summary>
+  {% with analysis = mail_context.analysis %}{% include "mail_rule_analysis.html" %}{% endwith %}
+</details>
+<p class="field-help">Puedes cambiar la prioridad abajo; solo se guarda al confirmar Crear tarea.</p>
 <section aria-labelledby="detected-company">
   <h2 id="detected-company">Empresa / Institución detectada</h2>
   {% set suggestion = mail_context.suggestion %}

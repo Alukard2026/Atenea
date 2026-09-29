@@ -1,0 +1,6 @@
+{% extends "workspace.html" %}
+{% block title %}Análisis no disponible · Atenea{% endblock %}
+{% block content %}<section class="module-page"><div class="card">
+  <h1>No se pudo completar el análisis</h1><p role="alert">{{ message }}</p>
+  <p>El correo y tus tareas no se han modificado.</p><a class="text-link" href="/mail">Volver a la bandeja</a>
+</div></section>{% endblock %}

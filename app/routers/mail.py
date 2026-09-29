@@ -6,7 +6,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 
-from app import mail
+from app import ai_provider, mail, mail_rules
 from app.graph import GraphClient, GraphError
 from app.models import User
 from app.routers.auth import templates
@@ -35,6 +35,7 @@ def inbox(request: Request, user: CurrentUser, db: DatabaseSession):
         zone = organization_zone(user.organization, request.app.state.task_zone)
         client = GraphClient(db, user, request.app.state.settings)
         messages, next_url = mail.list_messages(client, filters, cursor, csrf_token(request), zone)
+        mail_rules.analyze_messages(db, user, messages)
         return templates.TemplateResponse(request=request, name="mail_list.html", context={
             "user": user, "csrf_token": csrf_token(request), "messages": messages, "filters": filters,
             "next_url": next_url, "first_url": mail.list_url(filters), "refresh_url": retry_url,
@@ -54,9 +55,11 @@ def detail(request: Request, message_id: str, user: CurrentUser, db: DatabaseSes
         zone = organization_zone(user.organization, request.app.state.task_zone)
         client = GraphClient(db, user, request.app.state.settings)
         message = mail.get_message(client, message_id, zone)
+        mail_rules.analyze_messages(db, user, [message])
         retry_url = message["href"]
         return templates.TemplateResponse(request=request, name="mail_detail.html", context={
             "user": user, "csrf_token": csrf_token(request), "message": message, "zone": zone.key,
+            "ai": ai_provider.availability(request.app.state.settings),
         })
     except GraphError as error:
         if error.kind not in {"invalid", "cursor"}:

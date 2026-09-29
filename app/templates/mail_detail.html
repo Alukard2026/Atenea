@@ -20,6 +20,8 @@
       <dt>Estado</dt><dd>{{ 'Leído' if message.is_read else 'No leído' }}</dd>
       <dt>Adjuntos</dt><dd>{{ 'Contiene adjuntos; su lectura y descarga no están disponibles en Atenea.' if message.has_attachments else 'Sin adjuntos' }}</dd>
     </dl>
+    {% with analysis = message.analysis %}{% include "mail_rule_analysis.html" %}{% endwith %}
+    {% include "mail_ai_panel.html" %}
     <p class="form-note">Vista de texto. No se cargan imágenes ni contenido remoto del mensaje.</p>
     {% if message.body_truncated %}<p class="notice">Este mensaje es muy largo y la vista de texto está recortada. Puedes consultarlo completo en Outlook.</p>{% endif %}
     <div class="mail-body">{{ message.body or '(Sin contenido de texto)' }}</div>

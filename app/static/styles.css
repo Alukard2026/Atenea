@@ -165,6 +165,24 @@ tbody tr:last-child td { border-bottom: 0; }
 .mail-item h2 a:hover { text-decoration: underline; }
 .mail-preview { margin: 0; font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
 .mail-meta, .mail-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 16px; }
+.mail-rule-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.mail-rule-badges .badge { max-width: 100%; overflow-wrap: anywhere; }
+.mail-rule-analysis { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 20px; font-size: 14px; overflow-wrap: anywhere; }
+.mail-rule-analysis h2 { font-size: 20px; }
+.mail-rule-analysis h3 { font-size: 15px; margin-bottom: 8px; }
+.mail-rule-analysis ul { padding-left: 22px; }
+.mail-rule-analysis li + li { margin-top: 8px; }
+.mail-rule-context { margin: 8px 0 16px; }
+.mail-rule-context summary { cursor: pointer; color: var(--accent); }
+.mail-rule-context summary:focus-visible { outline: 3px solid #77997c; outline-offset: 3px; }
+.mail-ai-panel { margin-top: 24px; padding: 24px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.mail-ai-panel h2 { font-size: 22px; }
+.mail-ai-panel h3 { font-size: 17px; margin-top: 22px; }
+.mail-ai-panel ul { padding-left: 22px; }
+.mail-ai-panel li + li { margin-top: 10px; }
+.ai-text { white-space: pre-wrap; }
+.ai-loading { display: block; margin-top: 12px; }
+button:disabled { opacity: .6; cursor: not-allowed; }
 .mail-toolbar { margin-bottom: 24px; gap: 24px; }
 .mail-detail h1 { font-size: clamp(24px, 3vw, 34px); overflow-wrap: anywhere; }
 .mail-body { white-space: pre-wrap; overflow-wrap: anywhere; border-top: 1px solid var(--line); margin-top: 24px; padding-top: 24px; line-height: 1.7; }

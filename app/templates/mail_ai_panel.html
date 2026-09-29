@@ -1,0 +1,49 @@
+<section class="mail-ai-panel" aria-labelledby="ai-heading">
+  <h2 id="ai-heading">Análisis con IA</h2>
+  <p>Proveedor: <strong>{{ ai.provider }}</strong></p>
+  {% if not ai_result %}
+  <p>Este correo será enviado al proveedor de IA configurado para generar el análisis.</p>
+  <p class="field-help">Se enviarán asunto, remitente, fecha, texto limitado y contexto de reglas/cliente. Sin adjuntos. Analiza solo si puedes compartir estos datos. La IA puede equivocarse; no realizará acciones.</p>
+  {% if ai.enabled %}
+  <form method="post" action="{{ message.href }}/analyze" class="ai-analyze-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button class="quiet-button" type="submit">Analizar con IA</button>
+    <span class="ai-loading" role="status" hidden>Analizando… espera sin volver a enviar.</span>
+  </form>
+  {% else %}<button class="quiet-button" type="button" disabled>Analizar con IA</button><p class="muted">{{ ai.reason }}</p>{% endif %}
+  {% else %}
+  {% if ai_partial %}<p class="notice">Análisis parcial: el contenido se recortó antes de enviarlo al proveedor. Puede faltar contexto.</p>{% endif %}
+  <p class="field-help">Sugerencia no verificada. Revisa los datos, fechas y acciones antes de guardar una tarea. El análisis no se guarda en Atenea.</p>
+  <h3>Resumen</h3><p class="ai-text">{{ ai_result.summary }}</p>
+  {% set priority_names = {'low': 'Baja', 'normal': 'Normal', 'high': 'Alta', 'urgent': 'Urgente'} %}
+  <div class="mail-rule-badges">
+    <span class="badge priority-{{ ai_result.suggested_priority }}">IA: {{ priority_names[ai_result.suggested_priority] }}</span>
+    <span class="badge priority-{{ message.analysis.priority }}">Reglas: {{ message.analysis.priority_label }}</span>
+  </div>
+  {% if ai_result.suggested_priority != message.analysis.priority %}<p class="notice">La IA y las reglas sugieren prioridades distintas. Tú decides cuál usar.</p>{% endif %}
+  <p>{{ ai_result.priority_reason }}</p>
+  {% set categories = {'urgente': 'Urgente', 'legal': 'Legal', 'cobro_facturacion': 'Cobro / facturación', 'reunion_cita': 'Reunión / cita', 'seguimiento': 'Seguimiento', 'cliente': 'Cliente', 'institucion_publica': 'Institución pública', 'interno': 'Interno', 'informativo': 'Informativo', 'sin_clasificar': 'Sin clasificar'} %}
+  <p>Categorías IA: {% for category in ai_result.categories %}<span class="badge">{{ categories[category] }}</span> {% else %}Sin categorías sugeridas.{% endfor %}</p>
+  <h3>Acciones o pendientes</h3>
+  <ul>{% for item in ai_result.action_items %}<li>{{ item.text }} <span class="badge">{{ 'Explícita' if item.kind == 'explicit' else 'Inferencia por revisar' }}</span>
+    {% if item.due_date %} · Fecha sugerida: {{ item.due_date }}{% if item.due_time %} {{ item.due_time }}{% endif %} ({{ zone }}){% endif %}</li>
+    {% else %}<li>No se detectaron acciones claras.</li>{% endfor %}</ul>
+  <h3>Fechas y plazos detectados</h3>
+  <ul>{% for item in ai_result.dates_found %}<li>{{ item.text }} — {{ item.meaning }} · {{ item.date or 'Fecha ambigua/no determinada' }}</li>{% else %}<li>No se detectaron fechas claras.</li>{% endfor %}</ul>
+  <h3>Personas y entidades</h3>
+  {% set types = {'person': 'Persona', 'company': 'Empresa', 'institution': 'Institución', 'other': 'Otro'} %}
+  <ul>{% for item in ai_result.entities %}<li>{{ item.name }} ({{ types[item.type] }})</li>{% else %}<li>Sin entidades identificadas.</li>{% endfor %}</ul>
+  {% if ai_result.suggested_client %}<p>Posible cliente / institución: <strong>{{ ai_result.suggested_client }}</strong>. Revisa la asociación; no se ha creado ni seleccionado automáticamente por este nombre.</p>{% endif %}
+  <p>Confianza declarada por la IA: <strong>{{ {'low': 'Baja', 'medium': 'Media', 'high': 'Alta'}[ai_result.confidence] }}</strong>. No es una garantía de exactitud.</p>
+  {% if ai_result.warnings or ai_warnings %}<div class="notice"><h3>Advertencias</h3><ul>{% for warning in ai_result.warnings %}<li>{{ warning }}</li>{% endfor %}{% for warning in ai_warnings %}<li>{{ warning }}</li>{% endfor %}</ul></div>{% endif %}
+  {% if ai_draft %}
+  <h3>Posible tarea</h3><p><strong>{{ ai_result.suggested_task_title }}</strong></p><p class="ai-text">{{ ai_result.suggested_task_description or 'Sin descripción sugerida.' }}</p>
+  <form method="post" action="{{ message.href }}/ai/create-task" class="form-actions">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <input type="hidden" name="draft" value="{{ ai_draft }}">
+    <button class="quiet-button" type="submit">Crear tarea con esta sugerencia</button>
+  </form><p class="field-help">Abre un formulario editable; aún no guarda la tarea. La sugerencia caduca en 15 minutos.</p>
+  {% endif %}
+  <p><a href="{{ message.href }}">Volver al correo sin guardar el análisis</a></p>
+  {% endif %}
+</section>

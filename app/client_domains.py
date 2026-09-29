@@ -63,20 +63,33 @@ class DomainSuggestion:
     public_provider: bool = False
 
 
-def suggest_client(db, user, address):
-    from app.models import Client
-
-    domain = sender_domain(address)
+def suggestion_for_domain(domain, client=None):
+    """Mismas sugerencias para una consulta individual o un lote del buzón."""
     result = DomainSuggestion(domain=domain)
     if not domain:
         return result
     if is_public_domain(domain):
         result.public_provider = True
         return result
-    client = db.scalar(select(Client).where(Client.organization_id == user.organization_id, Client.email_domain == domain))
     if client is not None:
         result.client, result.name, result.client_type = client, client.name, client.client_type
         return result
     result.client_type = "institucion_publica" if domain.endswith(".gob.sv") else "empresa"
     result.name = DOMAIN_NAMES.get(domain) or domain.split(".")[0].replace("-", " ").capitalize()
     return result
+
+
+def suggest_clients(db, user, addresses):
+    """Una consulta acotada a los dominios de la página y la organización actual."""
+    from app.models import Client
+
+    domains = {sender_domain(address) for address in addresses}
+    eligible = {domain for domain in domains if domain and not is_public_domain(domain)}
+    clients = {client.email_domain: client for client in db.scalars(select(Client).where(
+        Client.organization_id == user.organization_id, Client.email_domain.in_(eligible),
+    ))} if eligible else {}
+    return {domain: suggestion_for_domain(domain, clients.get(domain)) for domain in domains}
+
+
+def suggest_client(db, user, address):
+    return suggest_clients(db, user, [address])[sender_domain(address)]

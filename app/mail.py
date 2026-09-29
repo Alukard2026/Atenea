@@ -6,12 +6,12 @@ import re
 import time
 from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
-from app import microsoft
+from app import microsoft, mail_rules
 from app.graph import GRAPH_ROOT, GraphError, checked_graph_url
 
 
 LIST_FIELDS = ("id", "subject", "from", "receivedDateTime", "isRead", "hasAttachments", "importance", "bodyPreview", "webLink")
-DETAIL_FIELDS = ("id", "subject", "from", "toRecipients", "ccRecipients", "receivedDateTime", "sentDateTime", "importance", "isRead", "hasAttachments", "body", "webLink")
+DETAIL_FIELDS = ("id", "subject", "from", "toRecipients", "ccRecipients", "receivedDateTime", "sentDateTime", "importance", "isRead", "hasAttachments", "body", "bodyPreview", "webLink")
 PAGE_SIZE = 20
 CURSOR_TTL = 15 * 60
 MAX_CURSOR_LENGTH = 18000
@@ -186,6 +186,7 @@ def present_message(raw, zone, detail=False):
     if not isinstance(importance, str):
         raise GraphError("response")
     result = {
+        "rule_input": mail_rules.message_input(raw),
         "href": "/mail/" + quote(identity, safe=""),
         "subject": text(raw.get("subject"), 1000) or "(Sin asunto)",
         "sender": recipient(raw.get("from")),

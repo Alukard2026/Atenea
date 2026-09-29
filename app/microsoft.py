@@ -39,8 +39,8 @@ def configure_safe_logging():
     if not any(isinstance(f, CallbackAccessFilter) for f in logger.filters):
         logger.addFilter(CallbackAccessFilter())
     # MSAL puede registrar respuestas de tokens a nivel DEBUG, incluso sin PII.
-    for name in {"msal", "requests", "urllib3", *logging.Logger.manager.loggerDict}:
-        if name.split(".")[0] in {"msal", "requests", "urllib3"}:
+    for name in {"msal", "requests", "urllib3", "openai", "httpx2", "httpcore2", *logging.Logger.manager.loggerDict}:
+        if name.split(".")[0] in {"msal", "requests", "urllib3", "openai", "httpx2", "httpcore2"}:
             sdk_logger = logging.getLogger(name)
             sdk_logger.disabled = True
             sdk_logger.setLevel(logging.CRITICAL + 1)

@@ -1,0 +1,13 @@
+<section class="mail-rule-analysis" aria-label="Análisis por reglas">
+  <h2>Análisis por reglas</h2>
+  <p class="field-help">Sugerencia automática basada en reglas sobre el asunto, hasta 240 caracteres de vista previa y el dominio. Revisa el resultado; no verifica la identidad del remitente ni modifica Outlook.</p>
+  <p>Prioridad sugerida: <span class="badge priority-{{ analysis.priority }}">{{ analysis.priority_label }}</span></p>
+  <p class="field-help">Se aplica la mayor prioridad de las reglas coincidentes. Repetir palabras no aumenta la prioridad; la importancia de Outlook se muestra por separado.</p>
+  <div class="mail-rule-badges" aria-label="Categorías sugeridas">{% for label in analysis.category_labels %}<span class="badge">{{ label }}</span>{% endfor %}</div>
+  {% if analysis.entity.name %}
+  <p>Cliente / institución: <strong>{{ analysis.entity.name }}</strong>
+    <span class="muted">({{ 'registrado en Atenea' if analysis.entity.client else 'nombre sugerido por dominio; sin asociación guardada' }}{{ ', archivado' if analysis.entity.client and not analysis.entity.client.is_active else '' }})</span>.</p>
+  {% else %}<p class="muted">Sin cliente identificado por dominio. Puedes seleccionarlo manualmente al crear la tarea.</p>{% endif %}
+  <h3>Motivos</h3>
+  <ul>{% for reason in analysis.reasons %}<li>{{ reason }}</li>{% endfor %}</ul>
+</section>

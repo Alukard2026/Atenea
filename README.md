@@ -372,7 +372,7 @@ Para probar manualmente con tu conexión ya operativa: reinicia Uvicorn, inicia 
 
 ## Correo → tarea: empresa o institución por dominio
 
-Desde el detalle de correo pulsa **Crear tarea desde este correo**. La ruta **`GET /mail/{message_id}/create-task`** consulta únicamente `id`, `subject`, `from` e `importance` en el buzón del usuario conectado. Propone el asunto como título editable, deja la descripción vacía y reutiliza los campos de tareas (cliente, proyecto, vencimiento, prioridad, recordatorio y recurrencia). No consulta ni copia el cuerpo completo ni el preview. Las notas de descripción son las que el usuario escribe en el formulario.
+Desde el detalle de correo pulsa **Crear tarea desde este correo**. La ruta **`GET /mail/{message_id}/create-task`** consulta únicamente `id`, `subject`, `from` y `bodyPreview` en el buzón del usuario conectado. Propone el asunto como título editable, deja la descripción vacía y reutiliza los campos de tareas (cliente, proyecto, vencimiento, prioridad, recordatorio y recurrencia). Desde Fase 1E usa hasta 240 caracteres del preview para sugerir la prioridad; no consulta el cuerpo completo ni copia el preview a la tarea. Las notas de descripción son las que el usuario escribe en el formulario.
 
 La sección **Empresa / Institución detectada** normaliza el dominio del remitente a minúsculas, sin inferir identidad a partir del nombre visible. La comparación es por dominio exacto y organización actual; no se comparte entre organizaciones ni se busca por el nombre sugerido. La prioridad es: asociación existente → mapping explícito → sugerencia básica del primer componente del dominio. Un cliente existente conserva su nombre y tipo, aunque difieran de la sugerencia.
 
@@ -464,3 +464,180 @@ python tests/check_notifications_browser.py
 ```
 
 Prueba manual: reinicia Uvicorn; entra en **Trabajo → Tareas**, crea una tarea con recordatorio unos minutos en el pasado y abre **Avisos**. Comprueba su clasificación, pospón una hora y verifica la nueva hora y el contador. Prueba «mañana» frente a la zona de **Configuración → Zona horaria**. Completa otra tarea recurrente y verifica que exista una sola sucesora. Recarga/navega para confirmar que el banner no se repita. En otra sesión de usuario u organización, comprueba que la tarea no aparezca. Reduce la ventana a móvil, abre Menú y prueba Tab/Enter/Escape. No se necesitan cambios en Entra ni `.env`.
+
+## Fase 1E: clasificación de correo por reglas
+
+`app/mail_rules.py` centraliza las categorías, palabras clave y precedencia. Calcula sugerencias al consultar `/mail`, su detalle y el formulario de tarea. No usa IA, servicios externos ni reglas aprendidas; no añade endpoints, tablas, migraciones, dependencias ni permisos. No escribe categorías en Outlook ni marca mensajes como leídos. Se conservan los GET de Graph v1.0 con `Mail.Read` delegado y el aislamiento del buzón por usuario/organización.
+
+### Entradas, resultados y reglas configurables
+
+El motor puro `classify(MailInput, ...)` analiza el **asunto (máximo 1000 caracteres)**, **bodyPreview (máximo 240)** y el dominio validado del email del remitente. No analiza el nombre visible como dirección ni el cuerpo completo, adjuntos, fecha/antigüedad o importancia de Outlook. Devuelve `Analysis` con categorías, prioridad, razones aptas para mostrar, señales estructuradas (`rule`, `source`, `term`) y la sugerencia de cliente/institución. No registra el texto del correo en logs.
+
+Categorías disponibles: `urgente`, `legal`, `cobro_facturacion`, `reunion_cita`, `seguimiento`, `cliente`, `institucion_publica`, `interno`, `informativo` y `sin_clasificar`. Se permiten varias categorías simultáneas. Si no hay una categoría aplicable, se usa `sin_clasificar`.
+
+Las reglas iniciales están en la tupla `RULES`; cada `Rule` declara identificador, categorías, prioridad y términos. Para ampliar palabras o ajustar prioridad, edita esa estructura y añade pruebas; los routers y templates no contienen reglas de clasificación. No hay interfaz administrativa para editarlas todavía.
+
+| Señal | Categoría / prioridad sugerida |
+| --- | --- |
+| Urgente, inmediato, vence hoy, último día, requerimiento urgente | `urgente`; prioridad `urgent` |
+| Cuanto antes, vencimiento, plazo, suspensión, incumplimiento | Prioridad `high`; la categoría depende de otras señales |
+| Factura vencida / facturas vencidas | `cobro_facturacion`; `high` |
+| Audiencia, citación, expediente, tribunal, juzgado, demanda, escrito, resolución, notificación, requerimiento, recurso, apelación | `legal`; `normal` |
+| Factura, cobro, pago, saldo, mora, vencida, estado de cuenta | `cobro_facturacion`; `normal` |
+| Reunión, Teams, Zoom, cita, convocatoria, agenda, calendar | `reunion_cita`; `normal` |
+| Seguimiento, pendiente, recordar, confirmación, respuesta pendiente | `seguimiento`; `normal` |
+| Boletín, newsletter, informativo, para su información | `informativo`; `low` |
+| Sin señales de prioridad | `normal` |
+
+La precedencia es **urgent > high > normal > low** entre las reglas de texto coincidentes; no se suman puntos. Repetir una palabra cien veces no aumenta prioridad. Un boletín que además menciona una audiencia queda normal; «audiencia + vence hoy» queda urgente. Los dominios aportan categorías, pero no elevan prioridad por sí solos. La importancia de Outlook se sigue mostrando y filtrando aparte, sin convertir automáticamente su valor «alta» en urgencia de Atenea.
+
+Se normalizan mayúsculas y tildes Unicode, y se comparan palabras completas o frases contiguas. Por ejemplo, «mora» no coincide con «demora», ni «cita» con «solicita». Las frases no se forman uniendo el final del asunto con el principio del preview. Como precaución, `no` o `sin` dentro de las tres palabras anteriores suprimen esa coincidencia. Hay variantes plurales explícitas en las listas; no se aplica análisis semántico ni stemming.
+
+### Dominios y aislamiento
+
+Se reutilizan las reglas y mappings de `app/client_domains.py`. `suggest_clients` consulta todos los dominios de la página en **una sola consulta**, limitada a la organización de la sesión, sin crear ni modificar clientes:
+
+- Un dominio ya registrado, incluso de cliente archivado, añade `cliente`; en detalle se identifica el archivo. La tarea sigue preseleccionando solamente clientes activos.
+- `*.gob.sv` o un cliente registrado con tipo `institucion_publica` añade esa categoría, sin urgencia. `defensoria.gob.sv` conserva el nombre configurado «Defensoría del Consumidor» cuando aún no está asociado.
+- Gmail, Hotmail, Outlook, Yahoo, iCloud y los proveedores centralizados no identifican clientes ni dominios internos, aunque haya una asociación heredada errónea. Sus asuntos y previews sí se analizan.
+- Los nombres inferidos se distinguen de asociaciones guardadas; la creación de clientes sigue requiriendo confirmación y permisos existentes.
+
+`INTERNAL_DOMAINS_BY_ORGANIZATION` es un diccionario vacío por defecto. Un operador puede configurarlo en Python usando el ID real de una organización y un `frozenset` de dominios cuya pertenencia haya comprobado por separado. No se debe rellenar a partir del email del usuario, nombre de organización o cuenta Microsoft: esos datos no prueban propiedad del dominio. La comparación es exacta, no incluye subdominios implícitamente y nunca acepta proveedores públicos. No hay un dominio verificado almacenado actualmente en `Organization`; por eso `interno` no se activa por defecto. Esta configuración se puede trasladar posteriormente a administración sin cambiar el motor.
+
+### Bandeja, detalle y tareas
+
+La bandeja muestra una fila discreta con prioridad sugerida, hasta dos categorías y cliente/institución cuando corresponde; el resto de categorías queda accesible en el detalle. Un mensaje sin señales relevantes no añade badges de clasificación. No se reordena la bandeja: conserva fecha descendente, filtros de Microsoft y paginación segura.
+
+El detalle incorpora **Análisis por reglas**, con todas las categorías, prioridad, entidad detectada y motivos que identifican las palabras y su origen (asunto o vista previa). Distingue sugerencias de asociaciones registradas y recuerda que el dominio no autentica al remitente. El detalle solicita además `bodyPreview` para usar exactamente el mismo límite que el listado; el cuerpo sigue disponible únicamente en la vista de lectura existente y nunca se usa para clasificar.
+
+Crear tarea utiliza la prioridad sugerida como valor inicial editable. El formulario consulta solamente `id,subject,from,bodyPreview`, sin `body`. La elección del usuario se conserva tras errores de validación o creación del cliente. Solo el POST confirmado guarda la prioridad seleccionada y los campos normales de la tarea; no guarda categorías, razones, preview ni cuerpo. No crea tareas automáticamente. Los POST siguen verificando CSRF, contexto cifrado, conexión y propietario.
+
+### Validación y archivos
+
+Archivos creados: `app/mail_rules.py`, `app/templates/mail_rule_analysis.html`, `tests/test_mail_rules.py`, `tests/mail_rules_browser_fixture.py`, `tests/check_mail_rules_browser.py`.
+
+Archivos modificados: `app/client_domains.py`, `app/mail.py`, `app/mail_tasks.py`, `app/routers/mail.py`, `app/routers/mail_tasks.py`, `app/templates/mail_list.html`, `app/templates/mail_detail.html`, `app/templates/mail_task_suggestion.html`, `app/static/styles.css` y `README.md`.
+
+Se añadieron **32 pruebas**: categorías y precedencia, tildes/mayúsculas, negación simple, límites/palabras completas, reglas configurables, exclusión de proveedores públicos, dominios internos explícitos, motivos/señales, prioridad inicial y corrección manual, GET sin escrituras, clasificación recalculada, cuerpo completo ignorado, logs/HTML seguros, consultas por lote, aislamiento de usuarios/organizaciones/admins y conservación de permisos/Graph de lectura. Toda la suite tiene **312 pruebas**, incluidos los módulos anteriores y el arranque real con Uvicorn. `pip check`: **No broken requirements found**.
+
+Chromium aprobó cuatro escenarios de listado → detalle → formulario a 1440, 768, 390 y 320 px: badges, motivos, prioridad sugerida editable y ausencia de overflow horizontal. Se usan templates reales y datos/Graph simulados, con rollback de filas. Los POST de creación de tarea se prueban contra FastAPI/PostgreSQL en la suite. No se contactó una cuenta Microsoft real ni se modificó correo en Microsoft durante las pruebas.
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -q
+.\.venv\Scripts\python.exe -m pip check
+# QA opcional con el Python que ya dispone de Playwright y Chromium:
+python tests/check_mail_rules_browser.py
+```
+
+Limitaciones: son coincidencias literales conservadoras, no comprensión del mensaje. Pueden confundirse referencias históricas, citas, negaciones complejas y términos ambiguos («recurso», «agenda», «escrito»). No se interpretan fechas de vencimiento ni autenticidad del remitente. El límite del preview puede omitir señales posteriores, y un texto o mapping modificado puede producir otra sugerencia al actualizar. No hay clasificación persistente, búsqueda/filtro local por categoría, editor administrativo ni cambios de etiquetas de Outlook.
+
+Prueba manual: reinicia Atenea y abre **Correo → Bandeja**. En un mensaje existente con «audiencia» revisa Legal/Normal; con «audiencia» y «vence hoy», revisa Urgente. Abre el detalle para ver motivos, pulsa **Crear tarea desde este correo**, comprueba la prioridad inicial, cámbiala y confirma. Verifica la prioridad guardada en Tareas y repite con otro usuario para comprobar aislamiento. No necesitas modificar Entra, permisos ni `.env`.
+
+## Fase 1F: análisis manual de correo con IA
+
+La IA está **desactivada por defecto**. Abrir la bandeja, el detalle, el dashboard, el formulario normal de tarea o el polling de notificaciones **no llama a OpenAI**. En el detalle se muestra el proveedor y, antes del botón, el aviso: «Este correo será enviado al proveedor de IA configurado para generar el análisis». El envío requiere pulsar **Analizar con IA**, mediante POST autenticado con CSRF. No hay procesos automáticos ni análisis de lotes.
+
+### Configuración y proveedor
+
+Se utiliza la SDK oficial **`openai==3.20.0`**, fijada en `requirements.txt`, con **Responses API** y Structured Outputs mediante `responses.parse(text_format=EmailAnalysis)`. La instalación añade las dependencias transitivas necesarias de la SDK (en esta validación, `jiter==0.17.0` y `sniffio==1.3.1`); no se añadió otro framework. Referencia: [Structured Outputs de OpenAI](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+Instala las dependencias y configura localmente estas variables, manteniendo `.env` fuera de Git:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+```env
+AI_ENABLED=false
+AI_PROVIDER=openai
+OPENAI_API_KEY=replace_me
+OPENAI_MODEL=replace_me
+```
+
+No hay modelo predeterminado: `OPENAI_MODEL` debe contener el identificador de un modelo disponible en tu proyecto OpenAI que admita Responses API y la salida JSON estructurada. No se comprueba su disponibilidad mediante llamadas al iniciar Atenea. Antes de activar, revisa con IT la autorización para enviar los correos, el modelo, los límites de gasto y los controles del proyecto. Después completa clave/modelo en `.env`, cambia explícitamente **`AI_ENABLED=true`** y reinicia Uvicorn. Una clave presente por sí sola no activa nada. Para desactivar, vuelve a `false` y reinicia.
+
+Un flag ausente o diferente de `true` desactiva IA. Proveedor desconocido, clave vacía/placeholder o modelo vacío/placeholder muestran una explicación segura y dejan inhabilitado el botón; el resto de Atenea funciona normalmente. Una clave no autorizada o un modelo incompatible se detectan únicamente al solicitar un análisis y producen un error controlado. No se modificó el `.env` real durante esta fase; la comprobación local final encontró `AI_ENABLED=False`.
+
+### Arquitectura y contrato de salida
+
+- `app/ai_provider.py`: protocolo `AIProvider`, adaptador `OpenAIProvider`, disponibilidad/configuración, instrucciones fijas y traducción de errores. Es el único módulo con llamadas a la SDK.
+- `app/ai_schema.py`: contrato Pydantic estricto independiente del proveedor; rechaza campos extra, tipos/enums incorrectos, fechas imposibles, horas inválidas y longitudes excesivas.
+- `app/mail_ai.py`: minimización de datos, `analyze_email`, revalidación del resultado, selección conservadora de fechas y borrador cifrado efímero.
+- `app/routers/mail_ai.py`: autorización, POST/CSRF, consulta al buzón propio y presentación/formulario. No contiene prompts ni llamadas directas a OpenAI.
+
+`EmailAnalysis` exige: `summary`, `suggested_priority`, **`priority_reason`**, `categories`, `action_items`, `dates_found`, `entities`, `suggested_client`, `suggested_task_title`, `suggested_task_description`, `warnings` y `confidence`. Además de fecha/hora nullable, cada acción indica **`kind=explicit|inferred`**. Los nombres de cliente y textos sugeridos pueden ser null cuando no corresponden. Las categorías usan los diez valores de Fase 1E, y la prioridad sigue `low|normal|high|urgent`.
+
+Se permite un resumen de hasta 1200 caracteres, explicación de prioridad de 500, hasta ocho acciones, ocho fechas, diez entidades y ocho advertencias. Título de tarea: 255 caracteres; descripción: 3000. Las fechas deben existir, usar `YYYY-MM-DD` y estar entre 1900 y 2100; la hora debe usar `HH:MM` y tener fecha. Un resultado incompleto, rechazo del proveedor, JSON inválido o incumplimiento de esquema muestra un error seguro, nunca JSON bruto ni información interna del proveedor.
+
+### Datos y límites
+
+Se construye un objeto de entrada mediante una lista explícita de campos:
+
+| Enviado como contenido para analizar | Excluido del contenido |
+| --- | --- |
+| Asunto, máximo 1000 caracteres | Tokens/cache Microsoft, refresh tokens y headers OAuth |
+| Email del remitente, máximo 320 | Client secret, claves de cifrado, contraseñas de Atenea, cookies y API keys |
+| Fecha local de recepción y zona IANA de la organización | IDs de usuario/organización/cuenta/mensaje y nombre interno de organización |
+| Texto del cuerpo extraído/sanitizado por Atenea, máximo 12 000 caracteres | HTML crudo, imágenes, adjuntos, URLs de navegación y enlaces a Outlook |
+| Nombre/tipo del cliente, solo cuando ya está registrado para el dominio en la organización | Destinatarios/CC/BCC como campos, catálogo completo de clientes, otros correos |
+| Categorías y prioridad de reglas | Prompts/resultados de otros análisis, objetos Request/User/Settings |
+
+No se solicitan adjuntos. Se vuelve a pasar el texto por el extractor HTML de Atenea, para retirar etiquetas y scripts incluso ante contenido mal etiquetado. Los valores conocidos de las credenciales configuradas de Atenea se reemplazan si aparecen literalmente en el texto. Esto **no es un sistema DLP ni anonimización completa**: el correo puede contener información confidencial o credenciales desconocidas, nombres, direcciones o un hilo citado. El usuario debe decidir si puede compartir ese contenido antes de pulsar el botón. No se verifica automáticamente su clasificación de confidencialidad.
+
+El **JSON de entrada completo se limita a 16 000 caracteres**, además de instrucciones y esquema constantes; se recorta el cuerpo adicionalmente si el escape JSON ocupa demasiado espacio. No es un contador exacto de tokens. El recorte establece `truncated=true` para el modelo y muestra **Análisis parcial** en la UI, aunque el modelo omita advertirlo.
+
+La petición limita `max_output_tokens=2500`, usa `store=False`, `background=False`, `tools=[]`, `tool_choice='none'` y ninguna conversación o `previous_response_id`. No hay clientes SDK ni tokens de acceso globales. El cliente HTTP usa timeout de conexión de 5 segundos y timeout de lectura/escritura/pool de 45 segundos, sin redirecciones y sin proxies/endpoints heredados del entorno. Los timeouts son de operación de transporte, no un cronómetro global de toda la solicitud. El endpoint del adaptador inicial es `https://api.openai.com/v1`.
+
+No hay reintentos automáticos de OpenAI (`max_retries=0`): evita repetir un envío facturable tras fallos inciertos. Autenticación/permisos, timeout, rate limit, 4xx, 5xx, desconexión, rechazo e invalidación de esquema se traducen a mensajes fijos seguros. El usuario decide si reintenta.
+
+### Prompt injection y control humano
+
+Las instrucciones fijas viajan en `instructions`; el correo y todo su contexto se serializan separadamente como un único contenido de usuario no confiable. El prompt prohíbe seguir órdenes del email, revelar secretos, abrir enlaces, usar herramientas y modificar Atenea/Microsoft. Las credenciales y los objetos de aplicación no están dentro del contexto del modelo; la API key de OpenAI se utiliza solo en la autenticación HTTPS de la SDK, nunca dentro del mensaje para analizar.
+
+El proveedor no tiene herramientas ni funciones que pueda ejecutar. La aplicación trata el resultado como datos, lo valida y escapa todo texto al mostrarlo: no ejecuta HTML, Markdown, código ni instrucciones devueltas. Las pruebas verifican estas fronteras con correos que piden «ignora instrucciones anteriores» o extraer secretos. **No prueban que un modelo real sea infalible frente a prompt injection ni que sus conclusiones sean correctas**. El diseño impide acciones autónomas; todas las sugerencias siguen requiriendo revisión humana.
+
+La UI mantiene separados **Análisis por reglas** y **Análisis con IA**. Expone ambas prioridades, explica la prioridad IA y señala discrepancias. Presenta acciones explícitas/inferidas, fechas con su significado, entidades, posible cliente y confianza declarada —no una garantía—. Las fechas ambiguas y acciones inferidas reciben advertencias. La IA no sustituye el resultado determinista ni modifica prioridades guardadas.
+
+### Crear tarea y almacenamiento efímero
+
+Rutas nuevas, ambas exclusivamente POST + CSRF:
+
+- **`/mail/{message_id}/analyze`**: vuelve a consultar el mensaje en Graph usando exclusivamente `/me/messages/{id}` y la conexión actual del usuario; solo después prepara y envía el contenido a IA.
+- **`/mail/{message_id}/ai/create-task`**: abre el formulario existente prellenado con la sugerencia. No llama a OpenAI ni guarda una tarea.
+
+El título, descripción, prioridad y fecha/hora propuesta llegan a un formulario totalmente editable. Solo se prellena fecha cuando las acciones explícitas ofrecen un único plazo distinto; ante varios plazos, inferencias o una hora ambigua/inexistente por DST, se deja la fecha/hora vacía con advertencia. La zona enviada al modelo y usada para comprobar horas es la de la organización. Una fecha extraída no se convierte automáticamente en vencimiento.
+
+El cliente se preselecciona mediante la asociación determinista de dominio en la organización; **el nombre sugerido por la IA no crea ni selecciona clientes por sí solo**. El POST final reutiliza la ruta de tarea desde correo, sus validaciones, CSRF, permisos e idempotencia. El usuario puede cambiar todos los campos antes de confirmar. Si ya existe la tarea vinculada a ese correo, se conserva el comportamiento anterior: se abre la existente sin sobrescribirla.
+
+No se guardan cuerpo enviado, prompt, resumen ni resultado completo en PostgreSQL, sesión, localStorage o archivos. El resultado solo vive en la petición y la página mostrada, con `Cache-Control: no-store`; volver al detalle por GET lo descarta. Para abrir el formulario se incluye un **borrador cifrado en un campo oculto POST**, con únicamente los campos propuestos de tarea. Está ligado a usuario, organización, mensaje, conexión Microsoft y CSRF/sesión; caduca en **15 minutos**. No viaja en URLs ni cookies. Se valida y vuelve a comprobar el acceso al mensaje al abrir el formulario. **Los campos de tarea sí se almacenan como una tarea normal cuando el usuario confirma**, incluida la descripción sugerida que haya revisado.
+
+Se impide el doble clic desde el frontend; una marca temporal en la sesión limita repeticiones habituales a una por minuto. Un bloqueo por usuario coordina análisis en curso y el cambio de conexión. La cookie no contiene resultados ni texto del correo. Este control no sustituye una cuota de gasto: otra sesión o una repetición deliberada puede generar más llamadas. Configura los controles de uso del proyecto OpenAI. No hay cuotas mensuales ni contabilidad de costes propia en esta fase.
+
+### Información para IT / seguridad
+
+- **Egreso:** el envío manual comunica texto y datos personales del correo a OpenAI mediante HTTPS. Autorizarlo según políticas de la organización antes de activar `AI_ENABLED`. El adaptador inicial no configura residencia regional ni un proxy empresarial.
+- **Retención:** `store=False` evita solicitar almacenamiento de la respuesta como estado de aplicación; **no equivale a Zero Data Retention** ni garantiza ausencia de retención del proveedor. Deben revisarse los controles, monitoreo de abuso y condiciones del proyecto OpenAI. Según la documentación, el monitoreo de abuso puede conservar datos hasta 30 días por defecto; ZDR requiere los controles/acuerdos aplicables. Referencia: [Controles de datos de OpenAI](https://developers.openai.com/api/docs/guides/your-data).
+- **Autorización:** sesión activa, usuario/organización activos, CSRF y conexión Microsoft propietaria. Los IDs de propietario recibidos del navegador se rechazan. Un administrador no adquiere acceso al buzón de otros usuarios.
+- **Microsoft:** no hay cambios de App Registration, permisos Entra, scopes, mensajes ni etiquetas. Se conserva `Mail.Read` delegado, sin envío/modificación ni acceso a adjuntos.
+- **Logs:** no se registran cuerpo, prompt, output completo, cookies, Authorization ni claves. Se desactiva logging sensible de SDK/transporte; los errores técnicos propios solo incluyen proveedor y código de resultado fijo. No habilitar captura externa de cuerpos HTTP ni logging indiscriminado de requests en proxies/APM.
+- **Persistencia:** sin tablas nuevas ni migraciones. El cache MSAL cifrado mantiene su funcionamiento existente; los análisis no se guardan. Solo la tarea confirmada conserva los campos seleccionados por el usuario.
+- **Límites de garantía:** esquema válido no significa hechos correctos; fechas, confianza e inferencias pueden ser erróneas. Los modelos compatibles y sus límites deben validarse con correos sintéticos autorizados antes de uso productivo.
+
+### Pruebas, archivos y verificación manual
+
+Archivos creados en Fase 1F: `app/ai_provider.py`, `app/ai_schema.py`, `app/mail_ai.py`, `app/routers/mail_ai.py`, `app/templates/mail_ai_panel.html`, `app/templates/mail_ai_error.html`, `tests/test_mail_ai.py`, `tests/mail_ai_browser_fixture.py`, `tests/check_mail_ai_browser.py`.
+
+Archivos modificados en Fase 1F: `.env.example`, `requirements.txt`, `app/config.py`, `app/main.py`, `app/microsoft.py`, `app/routers/mail.py`, `app/routers/mail_tasks.py`, `app/templates/mail_detail.html`, `app/templates/mail_task_suggestion.html`, `app/static/workspace.js`, `app/static/styles.css` y `README.md`. Se conservaron los cambios previos de Fase 1E que ya estaban en el árbol de trabajo.
+
+Se añadieron **40 pruebas**, incluyendo configuración/feature flag, autenticación, CSRF, aislamiento/admins, GET sin IA, truncado, sanitización/minimización, schema estricto, SDK real con transporte simulado, errores del proveedor, separación de instrucciones y prompt injection, logs seguros, borrador cifrado/caducidad, edición/confirmación de tarea, ausencia de escrituras de análisis y conservación de permisos Microsoft. **352 pruebas aprobadas** en la suite completa, incluidos los módulos anteriores y la prueba de arranque de un Uvicorn real. `pip check`: **No broken requirements found**. No se realizaron llamadas reales a OpenAI ni Microsoft.
+
+Chromium verificó cuatro tamaños (1440, 768, 390 y 320 px): flag desactivado, proveedor mock habilitado, aviso de privacidad previo, ausencia de POST al listar/abrir, análisis explícito, resultados/prioridades diferenciadas y formulario editable, sin overflow horizontal. Los POST finales de creación se comprobaron contra FastAPI/PostgreSQL en la suite.
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -q
+.\.venv\Scripts\python.exe -m pip check
+# QA opcional, con el Python que dispone de Playwright/Chromium:
+python tests/check_mail_ai_browser.py
+```
+
+Para probar manualmente: con `AI_ENABLED=false`, abre un detalle y comprueba el botón deshabilitado. Tras la autorización interna, configura clave y modelo compatibles, activa el flag y reinicia. Abre un correo de prueba autorizado, lee el aviso y pulsa **Analizar con IA**. Revisa resumen, motivos, acciones, fechas y discrepancias con reglas. Pulsa **Crear tarea con esta sugerencia**, modifica campos y confirma; verifica que solo se haya guardado esa tarea. Repite con otro usuario y comprueba aislamiento. No hace falta modificar Entra.

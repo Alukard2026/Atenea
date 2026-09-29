@@ -6,7 +6,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-from app import mail, mail_tasks
+from app import mail, mail_rules, mail_tasks
 from app.client_domains import suggest_client
 from app.graph import GraphClient, GraphError
 from app.routers.mail import error_page
@@ -30,10 +30,11 @@ async def posted_data(request: Request):
     return data
 
 
-def render_form(request, user, db, client, identity, metadata, *, data=None, error=None, created=False):
-    suggestion = suggest_client(db, user, metadata["sender"])
+def render_form(request, user, db, client, identity, metadata, *, data=None, error=None, created=False, from_ai=False):
+    analysis = mail_rules.analyze_inputs(db, user, [metadata["rule_input"]])[0]
+    suggestion = analysis.entity
     if data is None:
-        data = {"title": metadata["subject"], "description": "", "priority": metadata["priority"],
+        data = {"title": metadata["subject"], "description": "", "priority": analysis.priority,
                 "client_id": str(suggestion.client.id) if suggestion.client and suggestion.client.is_active else ""}
     data = dict(data)
     data["intent"] = mail_tasks.context_token(client, identity, csrf_token(request))
@@ -41,7 +42,7 @@ def render_form(request, user, db, client, identity, metadata, *, data=None, err
     data.setdefault("new_client_type", suggestion.client_type)
     return task_render(request, user, "task_form.html", task=None, data=data, error=error,
         clients=active_clients(db, user), projects=active_projects(db, user),
-        mail_context={"suggestion": suggestion, "created": created,
+        mail_context={"suggestion": suggestion, "analysis": analysis, "created": created, "from_ai": from_ai,
                       "action": "/mail/" + quote(identity, safe="") + "/create-task"})
 
 
