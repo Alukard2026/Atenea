@@ -67,11 +67,12 @@ class WebAuthTests(unittest.TestCase):
         self.org_a = "Web A " + suffix
         self.org_b = "Web B " + suffix
         self.email = suffix + "@example.invalid"
+        self.email_b = "other-" + self.email
         with Session(bind=self.connection, join_transaction_mode="create_savepoint") as db, db.begin():
             first = Organization(name=self.org_a)
             second = Organization(name=self.org_b)
             user_a = User(organization=first, email=self.email, full_name="Persona Alfa", role="admin", hashed_password=self.hash_a)
-            user_b = User(organization=second, email=self.email, full_name="Persona Beta", role="user", hashed_password=self.hash_b)
+            user_b = User(organization=second, email=self.email_b, full_name="Persona Beta", role="user", hashed_password=self.hash_b)
             db.add_all([user_a, user_b])
             db.flush()
             self.org_a_id, self.org_b_id = first.id, second.id
@@ -102,7 +103,7 @@ class WebAuthTests(unittest.TestCase):
     def login(self, **overrides):
         self.client.cookies.clear()
         response = self.client.get("/login")
-        data = {"organization": self.org_a, "email": self.email, "password": self.password_a, "csrf": self.token(response)}
+        data = {"email": self.email, "password": self.password_a, "csrf": self.token(response)}
         data.update(overrides)
         response = self.client.post("/login", data=data)
         self.assertTrue(all(value not in response.text for value in (self.password_a, self.password_b, self.hash_a, self.hash_b)))
@@ -126,7 +127,7 @@ class WebAuthTests(unittest.TestCase):
         self.client.cookies.set("atenea_session", cookie)
 
     def test_correct_login_minimal_cookie_and_dashboard(self):
-        response = self.login(organization="  " + self.org_a.upper() + "  ", email=" " + self.email.upper() + " ")
+        response = self.login(email=" " + self.email.upper() + " ")
         self.assertEqual(response.status_code, 303)
         self.assertEqual(response.headers["location"], "/dashboard")
         flags = response.headers["set-cookie"].lower()
@@ -134,7 +135,7 @@ class WebAuthTests(unittest.TestCase):
         self.assertNotIn("; secure", flags)
         cookie = self.client.cookies.get("atenea_session")
         session = json.loads(base64.b64decode(TimestampSigner(self.settings.session_secret).unsign(cookie)))
-        self.assertEqual(set(session), {"user_id", "organization_id", "csrf_token"})
+        self.assertEqual(set(session), {"user_id", "organization_id", "csrf_token", "auth_version"})
         self.assertEqual(session["user_id"], self.user_a_id)
         self.assertEqual(session["organization_id"], self.org_a_id)
         dashboard = self.client.get("/dashboard")
@@ -163,7 +164,7 @@ class WebAuthTests(unittest.TestCase):
 
     def test_ambiguous_organization(self):
         self.connection.execute(Organization.__table__.insert().values(name=self.org_a.upper()))
-        self.rejected()
+        self.assertEqual(self.login().status_code, 303)
 
     def test_dashboard_without_session(self):
         response = self.client.get("/dashboard")
@@ -182,17 +183,17 @@ class WebAuthTests(unittest.TestCase):
     def test_csrf_login_logout_and_rotation(self):
         page = self.client.get("/login")
         old_token = self.token(page)
-        self.assertEqual(self.client.post("/login", data={"organization": self.org_a, "email": self.email, "password": self.password_a}).status_code, 403)
-        response = self.client.post("/login", data={"organization": self.org_a, "email": self.email, "password": self.password_a, "csrf": old_token})
+        self.assertEqual(self.client.post("/login", data={"email": self.email, "password": self.password_a}).status_code, 403)
+        response = self.client.post("/login", data={"email": self.email, "password": self.password_a, "csrf": old_token})
         self.assertEqual(response.status_code, 303)
         self.assertNotEqual(old_token, self.token(self.client.get("/dashboard")))
         self.assertEqual(self.client.post("/logout", data={"csrf": old_token}).status_code, 403)
         self.assertEqual(self.client.get("/logout").status_code, 405)
         self.assertEqual(self.client.get("/dashboard").status_code, 200)
 
-    def test_organization_isolation_same_email_different_password(self):
-        self.rejected(organization=self.org_b)
-        self.assertEqual(self.login(organization=self.org_b, password=self.password_b).status_code, 303)
+    def test_organization_isolation_email_resolves_owner(self):
+        self.rejected(email=self.email_b)
+        self.assertEqual(self.login(email=self.email_b, password=self.password_b).status_code, 303)
         dashboard = self.client.get("/dashboard")
         self.assertIn("Persona Beta", dashboard.text)
         self.assertIn(self.org_b, dashboard.text)
@@ -236,7 +237,7 @@ class WebAuthTests(unittest.TestCase):
         page = self.client.get("/login")
         from sqlalchemy.exc import SQLAlchemyError
         with patch("sqlalchemy.orm.Session.scalars", side_effect=SQLAlchemyError(self.hash_a)), self.assertLogs("atenea", level="ERROR") as logs:
-            response = self.client.post("/login", data={"organization": self.org_a, "email": self.email, "password": self.password_a, "csrf": self.token(page)})
+            response = self.client.post("/login", data={"email": self.email, "password": self.password_a, "csrf": self.token(page)})
         self.assertEqual(response.status_code, 503)
         self.assertTrue(all(value not in response.text + "".join(logs.output) for value in (self.password_a, self.hash_a, self.email)))
 

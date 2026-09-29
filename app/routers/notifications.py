@@ -55,3 +55,16 @@ def complete(task_id: int, request: Request, user: CurrentUser, db: DatabaseSess
     tasks.set_status(db, user, task_id, "completed", zone=task_zone(request, user))
     commit(db)
     return RedirectResponse("/notifications", status_code=303)
+
+
+@router.post("/events/{event_id}/snooze")
+def snooze_event(event_id: int, request: Request, user: CurrentUser, db: DatabaseSession, data: PostedForm):
+    validate_query(request)
+    if data.keys() - {"csrf", "delay"}:
+        raise HTTPException(400, "El formulario contiene campos no permitidos.")
+    try:
+        notifications.snooze_event(db, user, event_id, data.get("delay"), task_zone(request, user))
+    except FormError as error:
+        raise HTTPException(400, error.message) from None
+    commit(db)
+    return RedirectResponse("/notifications", status_code=303)

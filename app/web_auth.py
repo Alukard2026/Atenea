@@ -50,8 +50,11 @@ def get_optional_user(request: Request, db: DatabaseSession) -> User | None:
             Organization.is_active.is_(True),
         ).options(contains_eager(User.organization), defer(User.hashed_password, raiseload=True))
     )
-    if user is None:
+    # Cookies anteriores a 008 equivalen a versión cero; cualquier revocación las invalida.
+    version = request.session.get("auth_version", 0)
+    if user is None or type(version) is not int or version != user.auth_version:
         request.session.clear()
+        return None
     return user
 
 

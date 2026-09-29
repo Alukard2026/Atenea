@@ -129,6 +129,27 @@ class MailTests(unittest.TestCase):
         self.f.constructor.assert_not_called()
         self.f.graph.assert_not_called()
 
+    def test_email_only_login_keeps_connected_mailbox_scoped(self):
+        from app.security import hash_password
+        password = secrets.token_urlsafe(24)
+        hashed = hash_password(password)
+        for index, owner in enumerate(self.f.owners):
+            self.db.execute(update(User).where(User.id == owner.id).values(hashed_password=hashed))
+            email = self.db.scalar(select(User.email).where(User.id == owner.id))
+            self.browser.cookies.clear()
+            page = self.browser.get("/login")
+            csrf = re.search(r'name="csrf" value="([A-Za-z0-9_-]+)"', page.text).group(1)
+            response = self.browser.post("/login", data={"email": email.upper(), "password": password, "csrf": csrf})
+            self.assertEqual(response.status_code, 303)
+            response = self.browser.get("/mail")
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(f"Asunto privado {index}", response.text)
+            self.assertEqual(response.context["user"].organization_id, owner.organization_id)
+            for other in set(range(3)) - {index}:
+                self.assertNotIn(f"Asunto privado {other}", response.text)
+            connection = self.browser.get("/integrations/microsoft")
+            self.assertIn(f"mail{index}@example.invalid", connection.text)
+
     def test_disconnected_and_inactive_account_do_not_call_microsoft(self):
         self.db.execute(update(MicrosoftAccount).where(MicrosoftAccount.user_id == self.f.owners[0].id).values(is_active=False))
         for path in ("/mail", "/mail/message-0="):

@@ -1,0 +1,29 @@
+{% extends "workspace.html" %}
+{% set item = task if task else event %}
+{% block title %}{{ item.title }} · Calendario · Atenea{% endblock %}
+{% block content %}
+<section class="module-page">
+  <nav class="breadcrumbs" aria-label="Ubicación"><a href="/calendar">Calendario</a><span aria-hidden="true">/</span><span>Detalle</span></nav>
+  <div class="page-heading"><div><p class="eyebrow">{{ 'Tarea' if task else types[event.event_type] }}</p><h1>{{ item.title }}</h1></div>{% if task or event.status == 'scheduled' %}<a class="button-link secondary" href="{{ '/tasks/' ~ task.id ~ '/edit' if task else '/calendar/' ~ event.id ~ '/edit' }}">Editar {{ 'tarea' if task else 'evento' }}</a>{% endif %}</div>
+  <article class="card form-card">
+    {% if item.status == 'cancelled' %}<p class="alert">Este {{ 'pendiente' if task else 'evento' }} está cancelado.</p>{% endif %}
+    <dl class="record-summary">
+      <dt>Tipo</dt><dd>{{ 'Tarea' if task else types[event.event_type] }}</dd>
+      <dt>Estado</dt><dd>{{ statuses[task.status] if task else ('Cancelado' if event.status == 'cancelled' else 'Programado') }}</dd>
+      {% if task %}<dt>Prioridad</dt><dd><span class="badge priority-{{ task.priority }}">{{ priorities[task.priority] }}</span></dd><dt>Fecha</dt><dd>{{ task.due_date.strftime('%d/%m/%Y') if task.due_date else 'Sin fecha' }} {{ task.due_time.strftime('%H:%M') if task.due_time else '· Todo el día' if task.due_date else '' }}</dd>
+      {% elif event.all_day %}<dt>Inicio</dt><dd>{{ event.start_date.strftime('%d/%m/%Y') }} · Todo el día</dd><dt>Último día</dt><dd>{{ last_day.strftime('%d/%m/%Y') }}</dd>
+      {% else %}<dt>Inicio</dt><dd>{{ event.start_at.astimezone(zone).strftime('%d/%m/%Y %H:%M') }}</dd><dt>Fin</dt><dd>{{ event.end_at.astimezone(zone).strftime('%d/%m/%Y %H:%M') if event.end_at else 'Sin hora de fin' }}</dd>{% endif %}
+      <dt>Zona</dt><dd>{{ zone.key }}</dd><dt>Responsable</dt><dd>{{ user.full_name }}</dd>
+      <dt>Cliente</dt><dd>{{ item.client.name if item.client else 'Sin cliente' }}</dd><dt>Proyecto</dt><dd>{{ item.project.name if item.project else 'Sin proyecto' }}</dd>
+      {% if event %}<dt>Ubicación</dt><dd>{{ event.location or 'Sin ubicación' }}</dd><dt>Institución</dt><dd>{{ event.institution or 'Sin institución' }}</dd>{% endif %}
+      <dt>Recordatorio</dt><dd>{{ item.reminder_at.astimezone(zone).strftime('%d/%m/%Y %H:%M') if item.reminder_at else 'Sin recordatorio' }}</dd>
+    </dl>
+    <h2>Notas</h2><p class="task-description">{{ item.description or 'Sin notas adicionales.' }}</p>
+    <div class="form-actions">
+      {% if task and task.status == 'pending' %}<form action="/tasks/{{ task.id }}/status" method="post"><input type="hidden" name="csrf" value="{{ csrf_token }}"><button class="button-link" name="status" value="completed">Completar tarea</button></form><form action="/tasks/{{ task.id }}/status" method="post"><input type="hidden" name="csrf" value="{{ csrf_token }}"><button class="quiet-button" name="status" value="cancelled">Cancelar tarea</button></form>
+      {% elif event and event.status == 'scheduled' %}<form action="/calendar/{{ event.id }}/cancel" method="post"><input type="hidden" name="csrf" value="{{ csrf_token }}"><button class="danger-button" type="submit">Cancelar evento</button></form>{% endif %}
+      <a href="/calendar">Volver al calendario</a>
+    </div>
+  </article>
+</section>
+{% endblock %}

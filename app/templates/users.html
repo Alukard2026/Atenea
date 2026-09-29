@@ -1,0 +1,13 @@
+{% extends "workspace.html" %}
+{% block title %}Usuarios · Atenea{% endblock %}
+{% block content %}
+<section class="module-page">
+  <div class="page-heading"><div><p class="eyebrow">ADMINISTRACIÓN · {{ user.organization.name }}</p><h1>Usuarios</h1><p class="intro">Gestiona el acceso de las personas de tu organización.</p></div><a class="button-link" href="/settings/users/new">Crear usuario</a></div>
+  {% if saved %}<p class="notice" role="status">Los cambios se guardaron.</p>{% endif %}
+  <div class="card table-card"><h2>Miembros <span class="count">{{ total }}</span></h2><div class="table-scroll"><table class="users-table"><thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
+    {% for person in rows %}<tr><td>{{ person.full_name }}{% if person.id == user.id %} <span class="badge">Tú</span>{% endif %}</td><td>{{ person.email }}</td><td>{{ roles.get(person.role, person.role) }}</td><td><span class="badge {{ 'billable' if person.is_active else '' }}">{{ 'Activo' if person.is_active else 'Inactivo' }}</span></td><td><div class="row-actions"><a href="/settings/users/{{ person.id }}/edit">Editar</a><a href="/settings/users/{{ person.id }}/password">Restablecer contraseña</a></div></td></tr>{% endfor %}
+  </tbody></table></div></div>
+  <p class="field-help">Desactivar una cuenta conserva sus tareas, horas y registros. La organización debe mantener al menos un administrador activo.</p>
+  {% if pages > 1 %}<nav class="history-navigation" aria-label="Páginas de usuarios">{% if page > 1 %}<a href="/settings/users?page={{ page - 1 }}">Anterior</a>{% endif %}<span>Página {{ page }} de {{ pages }}</span>{% if page < pages %}<a href="/settings/users?page={{ page + 1 }}">Siguiente</a>{% endif %}</nav>{% endif %}
+</section>
+{% endblock %}

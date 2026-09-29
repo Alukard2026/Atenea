@@ -1,0 +1,32 @@
+{% extends "workspace.html" %}
+{% block title %}{{ 'Editar evento' if event else 'Nuevo evento' }} · Atenea{% endblock %}
+{% macro field(key, label, type='text', required=false, maximum=255) %}
+<div><label for="{{ key }}">{{ label }}</label><input id="{{ key }}" name="{{ key }}" type="{{ type }}" maxlength="{{ maximum }}" value="{{ data.get(key, '') }}" {% if required %}required{% endif %} {% if type == 'date' %}min="1900-01-01" max="2100-12-31"{% endif %} {% if errors.get(key) %}aria-invalid="true" aria-describedby="error-{{ key }}"{% endif %}>{% if errors.get(key) %}<p id="error-{{ key }}" class="field-error">{{ errors[key] }}</p>{% endif %}</div>
+{% endmacro %}
+{% block content %}
+<section class="module-page">
+  <nav class="breadcrumbs" aria-label="Ubicación"><a href="/calendar">Calendario</a><span aria-hidden="true">/</span><span>{{ 'Editar evento' if event else 'Nuevo evento' }}</span></nav>
+  <div class="page-heading"><div><h1>{{ 'Editar evento' if event else 'Nuevo evento' }}</h1><p class="intro">Organiza una audiencia o un compromiso de trabajo.</p></div></div>
+  <div class="card form-card">{% include "form_errors.html" %}
+    {% if not event %}<p class="notice">¿Necesitas una tarea? <a id="calendar-task-link" href="/tasks/new?date={{ data.get('date', '')|urlencode }}&amp;time={{ data.get('start_time', '')|urlencode }}">Crear tarea con esta fecha</a>.</p>{% endif %}
+    <form method="post" action="{{ '/calendar/' ~ event.id ~ '/edit' if event else '/calendar/new' }}" id="calendar-event-form">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <fieldset><legend>Datos del evento</legend>
+        <label for="event_type">{{ 'Tipo' if event else '¿Qué deseas crear?' }}</label><select id="event_type" name="event_type" required>{% for key, label in types.items() %}<option value="{{ key }}" {% if data.get('event_type') == key %}selected{% endif %}>{{ label }}</option>{% endfor %}{% if not event %}<option value="task">Tarea (abrir formulario de tareas)</option>{% endif %}</select>
+        {{ field('title', 'Título', required=true) }}
+        <div class="field-grid"><div><label for="client_id">Cliente (opcional)</label><select id="client_id" name="client_id"><option value="">Sin cliente</option>{% for client in clients %}<option value="{{ client.id }}" {% if data.get('client_id') == client.id|string %}selected{% endif %}>{{ client.name }}{{ ' (archivado)' if not client.is_active else '' }}</option>{% endfor %}</select></div><div><label for="project_id">Proyecto / Expediente (opcional)</label><select id="project_id" name="project_id"><option value="">Sin proyecto</option>{% for project in projects %}<option value="{{ project.id }}" data-client-id="{{ project.client_id }}" {% if data.get('project_id') == project.id|string %}selected{% endif %}>{{ project.name }}{{ ' (archivado)' if not project.is_active else '' }}</option>{% endfor %}</select></div></div>
+      </fieldset>
+      <fieldset><legend>Fecha y hora</legend><p class="field-help">Hora de {{ zone.key }}. Responsable: {{ user.full_name }}.</p>
+        <label class="check-label"><input type="checkbox" name="all_day" id="all_day" value="yes" {% if data.get('all_day') == 'yes' %}checked{% endif %}>Todo el día</label>
+        <div class="field-grid">{{ field('date', 'Fecha de inicio', 'date', true) }}{{ field('end_date', 'Último día (opcional)', 'date') }}{{ field('start_time', 'Hora de inicio', 'time') }}{{ field('end_time', 'Hora de fin (opcional)', 'time') }}</div>
+        {{ field('reminder_at', 'Recordatorio (opcional)', 'datetime-local') }}<p class="field-help">Visible en el calendario y en Avisos, donde puedes posponerlo sin cambiar el evento. Para retirarlo, deja este campo vacío. No se envían avisos externos.</p>
+      </fieldset>
+      <fieldset><legend>Lugar y notas</legend><div class="field-grid">{{ field('location', 'Ubicación (opcional)') }}{{ field('institution', 'Institución / Tribunal (opcional)') }}</div>
+        <label for="description">Descripción / Notas (opcional)</label><textarea id="description" name="description" rows="4" maxlength="5000">{{ data.get('description', '') }}</textarea>
+      </fieldset>
+      <div class="form-actions"><button type="submit" class="primary-button">{{ 'Guardar cambios' if event else 'Crear evento' }}</button><a class="button-link secondary" href="{{ '/calendar/' ~ event.id if event else '/calendar' }}">Cancelar</a></div>
+    </form>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/hours.js" defer></script><script src="/static/calendar-form.js" defer></script>{% endblock %}

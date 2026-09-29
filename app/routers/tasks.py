@@ -56,8 +56,23 @@ def tasks_page(request: Request, user: CurrentUser, db: DatabaseSession, status:
 
 
 @router.get("/new")
-def new_task_page(request: Request, user: CurrentUser, db: DatabaseSession):
-    return task_form(request, user, db)
+def new_task_page(request: Request, user: CurrentUser, db: DatabaseSession, date: str = "", time: str = ""):
+    from app.calendar import instant
+    from app.worklog import parse_date
+    if any(k not in {"date", "time"} or len(request.query_params.getlist(k)) != 1 for k in request.query_params):
+        raise HTTPException(400, "Parámetros de tarea inválidos.")
+    data = None
+    try:
+        if date:
+            date = parse_date(date, "due_date").isoformat()
+            if time:
+                instant(date + "T" + time, task_zone(request, user), "due_time")
+            data = {"due_date": date, "due_time": time, "priority": "normal", "recurrence_type": "none", "recurrence_interval": "1"}
+        elif time:
+            raise FormError("due_date", "Selecciona primero la fecha.")
+    except FormError as error:
+        raise HTTPException(400, error.message) from None
+    return task_form(request, user, db, data=data)
 
 
 @router.post("/new")

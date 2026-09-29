@@ -1,6 +1,19 @@
 /* Navegación accesible y contador privado; sin contenido de tareas en storage. */
 (() => {
   'use strict';
+  // Añadir error junto al campo y su asociación accesible en formularios existentes.
+  document.querySelectorAll('.alert a[href^="#"]').forEach(link => {
+    const field = document.getElementById(link.getAttribute('href').slice(1));
+    if (!field || !field.matches('input,select,textarea')) return;
+    const id = `error-${field.id}`;
+    if (!document.getElementById(id)) {
+      const message = document.createElement('p');
+      message.id = id; message.className = 'field-error'; message.textContent = link.textContent;
+      field.insertAdjacentElement('afterend', message);
+    }
+    field.setAttribute('aria-invalid', 'true');
+    field.setAttribute('aria-describedby', id);
+  });
   document.querySelectorAll('.ai-analyze-form').forEach(form => {
     window.addEventListener('pageshow', () => {
       delete form.dataset.submitting;
@@ -16,45 +29,42 @@
   });
   const nav = document.getElementById('workspace-navigation');
   if (!nav) return;
+  document.body.classList.add('workspace-enhanced');
   const mobile = document.querySelector('.mobile-menu-toggle');
-  const narrow = window.matchMedia('(max-width: 1100px)');
+  const sidebar = document.getElementById('workspace-sidebar');
+  const backdrop = document.getElementById('sidebar-backdrop');
+  const narrow = window.matchMedia('(max-width: 767px)');
   const triggers = [...nav.querySelectorAll('.nav-trigger')];
   const setGroup = (button, open) => {
     button.setAttribute('aria-expanded', String(open));
     document.getElementById(button.getAttribute('aria-controls')).hidden = !open;
   };
-  const closeGroups = () => triggers.forEach(button => setGroup(button, false));
-  nav.classList.add('enhanced');
-  closeGroups();
-  const responsive = () => {
-    mobile.hidden = !narrow.matches;
-    mobile.setAttribute('aria-expanded', 'false');
-    nav.hidden = narrow.matches;
-    closeGroups();
+  const setMenu = open => {
+    sidebar.hidden = narrow.matches && !open;
+    backdrop.hidden = !narrow.matches || !open;
+    mobile.setAttribute('aria-expanded', String(open));
+    document.body.classList.toggle('menu-open', narrow.matches && open);
+    document.getElementById('main-content').inert = narrow.matches && open;
   };
+  const responsive = () => { mobile.hidden = !narrow.matches; setMenu(false); };
   responsive();
   narrow.addEventListener('change', responsive);
   mobile.addEventListener('click', () => {
     const open = mobile.getAttribute('aria-expanded') !== 'true';
-    mobile.setAttribute('aria-expanded', String(open));
-    nav.hidden = !open;
+    setMenu(open);
+    if (open) sidebar.querySelector('a').focus();
   });
-  triggers.forEach(button => button.addEventListener('click', () => {
-    const open = button.getAttribute('aria-expanded') !== 'true';
-    closeGroups();
-    setGroup(button, open);
-  }));
-  document.addEventListener('click', event => {
-    if (!nav.contains(event.target)) closeGroups();
-  });
-  nav.addEventListener('focusout', event => {
-    if (!nav.contains(event.relatedTarget)) closeGroups();
-  });
+  backdrop.addEventListener('click', () => { setMenu(false); mobile.focus(); });
+  triggers.forEach(button => button.addEventListener('click', () => setGroup(button, button.getAttribute('aria-expanded') !== 'true')));
   document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape') return;
-    const open = triggers.find(button => button.getAttribute('aria-expanded') === 'true');
-    if (open) { closeGroups(); open.focus(); }
-    else if (narrow.matches && !nav.hidden) { nav.hidden = true; mobile.setAttribute('aria-expanded', 'false'); mobile.focus(); }
+    if (!narrow.matches || sidebar.hidden) return;
+    if (event.key === 'Escape') { setMenu(false); mobile.focus(); }
+    if (event.key === 'Tab') {
+      const focusable = [...sidebar.querySelectorAll('a,button')].filter(el => el.getClientRects().length);
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
   });
 
   const link = document.getElementById('notification-link');

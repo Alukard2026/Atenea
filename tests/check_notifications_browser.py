@@ -45,7 +45,7 @@ def main():
                         if path == "/notifications/status":
                             requests.append(path)
                             route.fulfill(json=status)
-                        elif path in ("/static/styles.css", "/static/workspace.js"):
+                        elif path in ("/static/styles.css", "/static/corporate.css", "/static/workspace.js"):
                             route.fulfill(path=str(ROOT / "app" / path.lstrip("/")),
                                           content_type="text/css" if path.endswith("css") else "text/javascript")
                         elif path in pages[role]:
@@ -58,8 +58,8 @@ def main():
                     page.route("**/*", route_request)
                     page.goto("http://atenea.test/dashboard")
                     expect(page.locator("#notification-banner")).to_be_visible()
-                    mobile = page.get_by_role("button", name="Menú")
-                    if width <= 1100:
+                    mobile = page.get_by_role("button", name="Menú", exact=True)
+                    if width < 768:
                         expect(mobile).to_be_visible()
                         expect(page.locator("#workspace-navigation")).to_be_hidden()
                         mobile.click()
@@ -67,17 +67,21 @@ def main():
                     else:
                         expect(mobile).to_be_hidden()
                     expect(page.locator("#notification-count")).to_have_text("9+")
-                    expect(page.get_by_role("button", name="Configuración")).to_have_count(1 if role == "admin" else 0)
+                    expect(page.get_by_role("button", name="Configuración")).to_have_count(1)
+                    expect(page.locator('a[href="/settings/timezone"]')).to_have_count(1 if role == "admin" else 0)
                     for trigger in page.locator(".nav-trigger").all():
                         trigger.focus()
+                        page.keyboard.press("Enter")
+                        expect(trigger).to_have_attribute("aria-expanded", "false")
                         page.keyboard.press("Enter")
                         expect(trigger).to_have_attribute("aria-expanded", "true")
                         page.keyboard.press("Tab")
                         assert page.locator(":focus").evaluate("element => element.matches('.nav-submenu a')")
                         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+                    if width < 768:
                         page.keyboard.press("Escape")
-                        expect(trigger).to_be_focused()
-                        expect(trigger).to_have_attribute("aria-expanded", "false")
+                        expect(mobile).to_be_focused()
+                        expect(page.locator("#workspace-navigation")).to_be_hidden()
                     page.get_by_role("button", name="Ocultar aviso de recordatorios").click()
                     page.reload()
                     expect(page.locator("#notification-count")).to_have_text("9+")
@@ -87,7 +91,7 @@ def main():
                         args.screenshots.mkdir(parents=True, exist_ok=True)
                         page.screenshot(path=str(args.screenshots / f"dashboard-{width}.png"), full_page=True)
                     page.goto("http://atenea.test/mail")
-                    expect(page.locator(".nav-active .nav-trigger")).to_have_text("Correo ▾")
+                    expect(page.locator(".nav-active .nav-trigger")).to_contain_text("Correo")
                     expect(page.locator('a[aria-current="page"]')).to_have_text("Bandeja de correo")
                     page.goto("http://atenea.test/notifications")
                     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")

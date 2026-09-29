@@ -60,6 +60,8 @@ def main() -> int:
             migrate_recurrence_timezone(connection)
             microsoft_created = migrate_microsoft(connection)
             migrate_client_domains(connection)
+            calendar_created = migrate_calendar(connection)
+            migrate_global_user_email(connection)
         engine.dispose()
         print(f"Migración 001 verificada. Columnas añadidas: {len(added)}. Datos existentes conservados.")
         print(f"Migración 002 verificada. Proyecto opcional; cambio aplicado: {project_changed}.")
@@ -67,11 +69,76 @@ def main() -> int:
         print("Migración 004 verificada. Recurrencias y zonas horarias por organización disponibles.")
         print(f"Migración 005 verificada. Tablas Microsoft creadas: {microsoft_created}.")
         print("Migración 006 verificada. Dominio y tipo de cliente; datos anteriores conservados.")
+        print(f"Migración 007 verificada. Tabla calendar_events creada: {calendar_created}.")
+        print("Migración 008 verificada. Email global único y revocación de sesiones disponibles.")
         return 0
+    except DuplicateUserEmails as error:
+        print("Migración 008 detenida: existen emails duplicados tras normalizar. No se modificaron ni eliminaron usuarios.")
+        for identities in error.groups:
+            print("Usuarios en conflicto (IDs): " + ", ".join(str(identity) for identity in identities))
+        print("Revisa esas cuentas con list-users y resuelve los conflictos explícitamente antes de repetir.")
+        return 1
     except Exception:
         # No mostrar excepciones SQL, URL de conexión ni otros valores sensibles.
         print("No se pudo aplicar la migración; la transacción se revirtió. Revisa la conexión, los bloqueos y el esquema.")
         return 1
+
+
+class DuplicateUserEmails(RuntimeError):
+    def __init__(self, groups):
+        super().__init__("Emails duplicados; migración detenida.")
+        self.groups = groups
+
+
+def migrate_global_user_email(connection):
+    if connection.dialect.name != "postgresql":
+        raise RuntimeError("Esta migración requiere PostgreSQL.")
+    connection.execute(text("SET LOCAL lock_timeout = '5s'"))
+    connection.execute(text("SET LOCAL statement_timeout = '30s'"))
+    connection.execute(text("SELECT pg_advisory_xact_lock(41003, 1)"))
+    connection.execute(text("LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE"))
+    duplicates = connection.execute(text("SELECT array_agg(id ORDER BY id) FROM users GROUP BY lower(btrim(email)) HAVING count(*) > 1")).scalars().all()
+    if duplicates:
+        raise DuplicateUserEmails(duplicates)
+    connection.exec_driver_sql(MIGRATION_PATH.with_name("008_global_user_email.sql").read_text(encoding="utf-8"))
+    schema = connection.scalar(text("SELECT current_schema()"))
+    columns = {c["name"]: c for c in inspect(connection).get_columns("users", schema=schema)}
+    version = columns.get("auth_version")
+    index = connection.execute(text("""SELECT i.indisunique, i.indisvalid, pg_get_expr(i.indexprs, i.indrelid), i.indpred IS NULL AS unfiltered
+        FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+        WHERE i.indrelid = 'users'::regclass AND c.relname = 'uq_users_email_global'""")).one_or_none()
+    expression = index[2].replace("::text", "").replace("(email)", "email") if index is not None and index[2] else ""
+    check = next((c["sqltext"] for c in inspect(connection).get_check_constraints("users", schema=schema) if c["name"] == "ck_users_auth_version"), "")
+    if version is None or version["nullable"] or str(version["type"]) != "INTEGER" or version["default"] != "0" or index is None or not index.indisunique or not index.indisvalid or not index.unfiltered or expression != "lower(btrim(email))" or check.replace("(", "").replace(")", "").replace(" ", "") != "auth_version>=0":
+        raise RuntimeError("El esquema de identidad no coincide con la migración 008.")
+
+
+def migrate_calendar(connection) -> bool:
+    """007: crear y verificar sin sustituir estructuras o datos preexistentes."""
+    from app.models import CalendarEvent
+    if connection.dialect.name != "postgresql":
+        raise RuntimeError("Esta migración requiere PostgreSQL.")
+    connection.execute(text("SET LOCAL lock_timeout = '5s'"))
+    connection.execute(text("SET LOCAL statement_timeout = '30s'"))
+    connection.execute(text("SELECT pg_advisory_xact_lock(41003, 1)"))
+    schema = connection.scalar(text("SELECT current_schema()"))
+    existed = inspect(connection).has_table("calendar_events", schema=schema)
+    connection.exec_driver_sql(MIGRATION_PATH.with_name("007_calendar_events.sql").read_text(encoding="utf-8"))
+    inspector = inspect(connection)
+    actual = {c["name"]: c for c in inspector.get_columns("calendar_events", schema=schema)}
+    table = CalendarEvent.__table__
+    for c in table.columns:
+        got = actual.get(c.name)
+        if got is None or got["nullable"] != c.nullable or str(got["type"].compile(dialect=connection.dialect)) != str(c.type.compile(dialect=connection.dialect)):
+            raise RuntimeError("El esquema de calendario no coincide con la migración 007.")
+    keys = {(tuple(k["constrained_columns"]), k["referred_table"], tuple(k["referred_columns"])) for k in inspector.get_foreign_keys(table.name, schema=schema)}
+    expected = {(tuple(e.parent.name for e in fk.elements), fk.referred_table.name, tuple(e.column.name for e in fk.elements)) for fk in table.foreign_key_constraints}
+    checks = {c["name"] for c in inspector.get_check_constraints(table.name, schema=schema)}
+    from sqlalchemy import CheckConstraint
+    indexes = {(i["name"], tuple(i["column_names"])) for i in inspector.get_indexes(table.name, schema=schema)}
+    if not expected <= keys or not {c.name for c in table.constraints if isinstance(c, CheckConstraint)} <= checks or not {(i.name, tuple(c.name for c in i.columns)) for i in table.indexes} <= indexes:
+        raise RuntimeError("Faltan restricciones o índices de calendario.")
+    return not existed
 
 
 def migrate_tasks(connection) -> bool:

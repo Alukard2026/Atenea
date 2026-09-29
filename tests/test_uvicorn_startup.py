@@ -50,6 +50,12 @@ with patch('app.config.ENV_PATH', Path(ENV_FILE_PLACEHOLDER)):
             with urlopen(f"http://127.0.0.1:{port}/static/styles.css", timeout=2) as response:
                 self.assertEqual(response.status, 200)
                 self.assertIn("text/css", response.headers["Content-Type"])
+            for path in ("corporate.css", "calendar.js", "calendar-form.js", "vendor/fullcalendar-6.1.21.min.js", "vendor/luxon-3.7.2.min.js"):
+                with urlopen(f"http://127.0.0.1:{port}/static/{path}", timeout=2) as response:
+                    self.assertEqual(response.status, 200)
+            for path in ("/calendar", "/calendar/events?start=2026-10-01&end=2026-11-01", "/calendar/new", "/calendar/1", "/calendar/tasks/1", "/settings/users", "/settings/users/new", "/settings/users/1/password"):
+                with urlopen(f"http://127.0.0.1:{port}{path}", timeout=2) as response:
+                    self.assertTrue(response.url.endswith("/login"))
             for path in ("/integrations/microsoft", "/integrations/microsoft/callback?state=invalid&code=mock", "/mail", "/mail/mock-message", "/mail/mock-message/create-task"):
                 with urlopen(f"http://127.0.0.1:{port}{path}", timeout=2) as response:
                     self.assertTrue(response.url.endswith("/login"))

@@ -46,7 +46,7 @@ class WorklogCase(unittest.TestCase):
             foreign_org = Organization(name="Otra organización " + suffix)
             user = User(organization=org, email=self.email, full_name="Usuario operativo", role="user", hashed_password=self.password_hash)
             colleague = User(organization=org, email="colleague-" + self.email, full_name="Otro usuario", role="admin", hashed_password=self.password_hash)
-            foreign_user = User(organization=foreign_org, email=self.email, full_name="Usuario externo", role="admin", hashed_password=self.password_hash)
+            foreign_user = User(organization=foreign_org, email="foreign-" + self.email, full_name="Usuario externo", role="admin", hashed_password=self.password_hash)
             client = Client(organization=org, name="Cliente principal", code="CLI-A")
             other_client = Client(organization=org, name="Segundo cliente", code="CLI-B")
             foreign_client = Client(organization=foreign_org, name="Cliente externo reservado", code="CLI-X")
@@ -306,7 +306,7 @@ class WorklogTests(WorklogCase):
     def test_end_to_end_login_client_project_hours_edit_and_week(self):
         self.browser.cookies.clear()
         page = self.browser.get("/login")
-        response = self.browser.post("/login", data={"organization": self.org_name, "email": self.email, "password": self.password, "csrf": self.token(page)})
+        response = self.browser.post("/login", data={"email": self.email, "password": self.password, "csrf": self.token(page)})
         self.assertEqual(response.status_code, 303)
         self.sign_in(self.colleague_id, self.org_id)
         self.assertEqual(self.post("/clients", {"name": "Cliente del flujo"}).status_code, 303)

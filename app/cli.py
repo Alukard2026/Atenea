@@ -2,7 +2,6 @@
 
 import argparse
 import getpass
-import re
 import sys
 import warnings
 from typing import TYPE_CHECKING
@@ -52,15 +51,20 @@ def create_admin(
 ) -> "User":
     """Prepara el alta; quien llama debe confirmar o revertir la transacción."""
     from app.models import Organization, User
+    from app.users import normalize_email, email_key
+    from app.worklog import FormError
 
     organization_name = _required_text(organization_name, "Organización", 255)
     full_name = _required_text(full_name, "Nombre completo", 255)
-    email = _required_text(email, "Email", 320).lower()
-    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
-        raise CLIError("El email debe tener un formato válido.")
+    try:
+        email = normalize_email(email)
+    except FormError as error:
+        raise CLIError(error.message) from None
     hashed_password = hash_password(password)
 
     db.execute(select(func.pg_advisory_xact_lock(_ADMIN_CREATION_LOCK)))
+    if db.scalar(select(User.id).where(email_key() == email).limit(1)) is not None:
+        raise CLIError("Ya existe un usuario con ese email en Atenea. El email debe ser único globalmente.")
     organizations = db.scalars(
         select(Organization).where(
             func.lower(func.trim(Organization.name)) == func.lower(organization_name)
@@ -78,11 +82,10 @@ def create_admin(
         db.flush()
 
     existing = db.scalar(select(User.id).where(
-        User.organization_id == organization.id,
-        func.lower(User.email) == func.lower(email),
+        email_key() == email,
     ))
     if existing is not None:
-        raise CLIError("Ya existe un usuario con ese email en la organización.")
+        raise CLIError("Ya existe un usuario con ese email en Atenea.")
 
     user = User(
         organization=organization,
@@ -102,11 +105,11 @@ def list_users(db: "Session") -> None:
     from app.models import Organization, User
 
     rows = db.execute(select(
-        User.id, Organization.name, User.full_name, User.email, User.role, User.is_active,
+        User.id, Organization.id, Organization.name, User.full_name, User.email, User.role, User.is_active,
     ).join(User.organization).order_by(Organization.name, User.id)).all()
-    print("ID\tOrganización\tNombre\tEmail\tRol\tEstado")
-    for user_id, organization, name, email, role, active in rows:
-        values = (user_id, organization, name, email, role, "activo" if active else "inactivo")
+    print("ID\tOrganización ID\tOrganización\tNombre\tEmail\tRol\tEstado")
+    for user_id, organization_id, organization, name, email, role, active in rows:
+        values = (user_id, organization_id, organization, name, email, role, "activo" if active else "inactivo")
         # Evita que datos existentes introduzcan controles de terminal.
         print("\t".join("".join(c if c.isprintable() else " " for c in str(value)) for value in values))
     if not rows:

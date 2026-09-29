@@ -29,6 +29,51 @@ from sqlalchemy.orm import deferred, relationship, validates
 from app.database import Base
 
 
+class CalendarEvent(Base):
+    """Eventos privados; instantes UTC o fechas civiles de día completo."""
+    __tablename__ = "calendar_events"
+    __table_args__ = (
+        ForeignKeyConstraint(["organization_id", "user_id"], ["users.organization_id", "users.id"], name="fk_calendar_owner"),
+        ForeignKeyConstraint(["organization_id", "client_id"], ["clients.organization_id", "clients.id"], name="fk_calendar_client"),
+        ForeignKeyConstraint(["organization_id", "client_id", "project_id"], ["projects.organization_id", "projects.client_id", "projects.id"], name="fk_calendar_project"),
+        CheckConstraint("project_id IS NULL OR client_id IS NOT NULL", name="ck_calendar_project_client"),
+        CheckConstraint("event_type IN ('hearing', 'meeting', 'appointment', 'reminder', 'other')", name="ck_calendar_type"),
+        CheckConstraint("status IN ('scheduled', 'cancelled')", name="ck_calendar_status"),
+        CheckConstraint("length(trim(title)) > 0", name="ck_calendar_title"),
+        CheckConstraint("NOT all_day OR end_date IS NOT NULL", name="ck_calendar_allday_end"),
+        CheckConstraint("(all_day AND start_date IS NOT NULL AND end_date > start_date AND start_at IS NULL AND end_at IS NULL) OR (NOT all_day AND start_at IS NOT NULL AND (end_at IS NULL OR end_at > start_at) AND start_date IS NULL AND end_date IS NULL)", name="ck_calendar_dates"),
+        CheckConstraint("(source_type IS NULL AND source_id IS NULL) OR (source_type IS NOT NULL AND source_id IS NOT NULL)", name="ck_calendar_source"),
+        Index("ix_calendar_owner_start", "organization_id", "user_id", "status", "start_at"),
+        Index("ix_calendar_owner_day", "organization_id", "user_id", "status", "start_date"),
+        Index("ix_calendar_owner_reminder", "organization_id", "user_id", "status", "reminder_at"),
+        Index("ix_calendar_client", "organization_id", "client_id"),
+        Index("ix_calendar_project", "organization_id", "project_id"),
+    )
+    id = Column(Integer, primary_key=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    user_id = Column(Integer, nullable=False)
+    event_type = Column(String(20), nullable=False)
+    title = Column(String(255), nullable=False)
+    description = Column(Text)
+    client_id = Column(Integer)
+    project_id = Column(Integer)
+    start_at = Column(DateTime(timezone=True))
+    end_at = Column(DateTime(timezone=True))
+    start_date = Column(Date)
+    end_date = Column(Date)  # Exclusiva, igual que FullCalendar.
+    all_day = Column(Boolean, nullable=False, server_default=false())
+    location = Column(String(255))
+    institution = Column(String(255))
+    status = Column(String(20), nullable=False, server_default="scheduled")
+    reminder_at = Column(DateTime(timezone=True))
+    source_type = Column(String(50))
+    source_id = Column(String(1024))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    client = relationship("Client", primaryjoin="and_(CalendarEvent.organization_id == Client.organization_id, foreign(CalendarEvent.client_id) == Client.id)")
+    project = relationship("Project", primaryjoin="and_(CalendarEvent.organization_id == Project.organization_id, CalendarEvent.client_id == Project.client_id, foreign(CalendarEvent.project_id) == Project.id)")
+
+
 class MicrosoftAccount(Base):
     __tablename__ = "microsoft_accounts"
     __table_args__ = (
@@ -97,6 +142,7 @@ class User(Base):
     __tablename__ = "users"
     __table_args__ = (
         UniqueConstraint("organization_id", "id", name="uq_users_org_id"),
+        CheckConstraint("auth_version >= 0", name="ck_users_auth_version"),
     )
 
     id = Column(Integer, primary_key=True)
@@ -104,6 +150,12 @@ class User(Base):
     email = Column(String(320), nullable=False)
     full_name = Column(String(255), nullable=False)
     hashed_password = Column(String(255), nullable=False)
+    auth_version = Column(Integer, nullable=False, server_default="0")
+
+    @validates("email")
+    def validate_email(self, key, value):
+        from app.users import normalize_email
+        return normalize_email(value)
     # Valores esperados por la futura capa de aplicación: admin, user.
     role = Column(String(20), nullable=False, server_default="user")
     is_active = Column(Boolean, nullable=False, server_default=true())
@@ -118,9 +170,10 @@ class User(Base):
         "User.id == foreign(TimeEntry.user_id))",
     )
 
-    # La misma dirección puede existir en empresas distintas.
+    # Conservar el índice anterior; la identidad normalizada es además global.
     __table_args__ += (
         Index("uq_users_org_email", organization_id, func.lower(email), unique=True),
+        Index("uq_users_email_global", func.lower(func.btrim(email)), unique=True),
     )
 
 

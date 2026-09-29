@@ -1,38 +1,40 @@
 {% extends "base.html" %}
-{% block navigation %}
+{% block shell %}
 {% set path = request.url.path %}
-<button type="button" class="quiet-button mobile-menu-toggle" aria-expanded="false" aria-controls="workspace-navigation" hidden>Menú <span aria-hidden="true">☰</span></button>
-<nav id="workspace-navigation" class="workspace-nav" aria-label="Navegación principal">
-  <a href="/dashboard" {% if path == '/dashboard' %}aria-current="page"{% endif %}>Inicio</a>
-  {% set groups = [
-    ('Trabajo', [('Tareas', '/tasks', path.startswith('/tasks')), ('Registrar horas', '/hours', path == '/hours' or (path.startswith('/hours/') and path not in ['/hours/history', '/hours/week'])), ('Historial de horas', '/hours/history', path == '/hours/history')]),
-    ('Correo', [('Bandeja de correo', '/mail', path == '/mail' or path.startswith('/mail/')), ('Conexión Microsoft', '/integrations/microsoft', path.startswith('/integrations/microsoft'))]),
-    ('Clientes', [('Clientes', '/clients', path.startswith('/clients')), ('Proyectos / Expedientes', '/projects', path.startswith('/projects'))]),
-    ('Reportes', [('Reporte semanal', '/hours/week', path == '/hours/week'), ('Reporte mensual', '/reports/month', path.startswith('/reports/'))])
-  ] %}
-  {% if user.role == 'admin' %}{% set groups = groups + [('Configuración', [('Días laborables', '/settings/workdays', path == '/settings/workdays'), ('Zona horaria', '/settings/timezone', path == '/settings/timezone')])] %}{% endif %}
-  {% for name, links in groups %}
-  {% set active = links | selectattr('2') | list %}
-  <div class="nav-group{% if active %} nav-active{% endif %}">
-    <button type="button" class="nav-trigger" aria-expanded="true" aria-controls="nav-group-{{ loop.index }}">{{ name }} <span aria-hidden="true">▾</span></button>
-    <div id="nav-group-{{ loop.index }}" class="nav-submenu">
-      {% for label, href, selected in links %}<a href="{{ href }}" {% if selected %}aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
-    </div>
+{% set config = [('Conexión Microsoft', '/integrations/microsoft', path.startswith('/integrations/microsoft'))] %}
+{% if user.role == 'admin' %}{% set config = config + [('Días laborables', '/settings/workdays', path == '/settings/workdays'), ('Zona horaria', '/settings/timezone', path == '/settings/timezone')] %}{% endif %}
+{% set groups = [
+  ('Inicio', '⌂', [('Dashboard', '/dashboard', path == '/dashboard')]),
+  ('Trabajo', '▦', [('Tareas', '/tasks', path.startswith('/tasks')), ('Calendario', '/calendar', path.startswith('/calendar')), ('Registrar horas', '/hours', path == '/hours' or (path.startswith('/hours/') and path not in ['/hours/history', '/hours/week'])), ('Historial de horas', '/hours/history', path == '/hours/history')]),
+  ('Correo', '✉', [('Bandeja de correo', '/mail', path.startswith('/mail')), ('Avisos', '/notifications', path.startswith('/notifications'))]),
+  ('Gestión', '▤', [('Clientes', '/clients', path.startswith('/clients')), ('Proyectos / Expedientes', '/projects', path.startswith('/projects'))]),
+  ('Reportes', '▥', [('Reporte semanal', '/hours/week', path == '/hours/week'), ('Reporte mensual', '/reports/month', path.startswith('/reports/'))]),
+  ('Configuración', '⚙', config)
+] %}
+{% if user.role == 'admin' %}{% set groups = groups + [('Administración', '♙', [('Usuarios', '/settings/users', path.startswith('/settings/users'))])] %}{% endif %}
+<aside class="sidebar" id="workspace-sidebar" aria-label="Espacio de trabajo">
+  <a class="brand" href="/dashboard"><span class="brand-mark" aria-hidden="true">A</span><span class="brand-name">Atenea</span></a>
+  <nav id="workspace-navigation" class="workspace-nav" aria-label="Navegación principal">
+    {% for name, icon, links in groups %}{% set active = links | selectattr('2') | list %}
+    <div class="nav-group{% if active %} nav-active{% endif %}">
+      <button type="button" class="nav-trigger" aria-expanded="true" aria-controls="nav-group-{{ loop.index }}"><span aria-hidden="true">{{ icon }}</span>{{ name }}<span class="nav-chevron" aria-hidden="true">⌄</span></button>
+      <div id="nav-group-{{ loop.index }}" class="nav-submenu">{% for label, href, selected in links %}<a href="{{ href }}" {% if selected %}aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}</div>
+    </div>{% endfor %}
+  </nav>
+  <div class="sidebar-account"><span class="avatar" aria-hidden="true">{{ user.full_name[:1] }}</span><div><strong>{{ user.full_name }}</strong><span>{{ user.organization.name }}</span><span class="role">{{ user.role }}</span></div></div>
+  <form action="/logout" method="post" class="logout-form"><input type="hidden" name="csrf" value="{{ csrf_token }}"><button class="quiet-button" type="submit">Cerrar sesión</button></form>
+</aside>
+<button type="button" id="sidebar-backdrop" class="sidebar-backdrop" aria-label="Cerrar menú" hidden></button>
+<header class="topbar workspace-topbar">
+  <button type="button" class="quiet-button mobile-menu-toggle" aria-expanded="false" aria-controls="workspace-navigation" hidden><span aria-hidden="true">☰</span><span class="sr-only">Menú</span></button>
+  <div class="topbar-title">{% for name, icon, links in groups %}{% for label, href, selected in links %}{% if selected %}{{ label }}{% endif %}{% endfor %}{% endfor %}</div>
+  <div class="topbar-actions">
+    {% if path.startswith('/calendar') %}<a class="button-link topbar-create" href="/calendar/new">Nuevo evento</a>{% elif path.startswith('/tasks') %}<a class="button-link topbar-create" href="/tasks/new">Nueva tarea</a>{% endif %}
+    <a href="/notifications" id="notification-link" class="notification-link" data-notification-scope="{{ user.organization_id }}:{{ user.id }}" aria-label="Avisos"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 8h18c0-1-3-1-3-8M9 20h6"/></svg><span id="notification-count" class="badge" hidden></span><span class="sr-only" id="notification-count-label"></span></a>
+    <div class="topbar-account"><strong>{{ user.full_name }}</strong><span>{{ user.organization.name }}</span></div>
   </div>
-  {% endfor %}
-  <a href="/notifications" id="notification-link" data-notification-scope="{{ user.organization_id }}:{{ user.id }}" {% if path.startswith('/notifications') %}aria-current="page"{% endif %}>
-    <span aria-hidden="true">&#128276;</span> Avisos <span id="notification-count" class="badge" hidden></span><span class="sr-only" id="notification-count-label"></span>
-  </a>
-  <form action="/logout" method="post" class="logout-form">
-    <input type="hidden" name="csrf" value="{{ csrf_token }}">
-    <button class="quiet-button" type="submit">Cerrar sesión</button>
-  </form>
-</nav>
+</header>
 {% endblock %}
 {% block notices %}
-<aside id="notification-banner" class="notice notification-banner" hidden aria-label="Recordatorios pendientes">
-  <span role="status">Tienes recordatorios que requieren atención.</span>
-  <a href="/notifications">Revisar notificaciones</a>
-  <button type="button" id="dismiss-notification" class="quiet-button" aria-label="Ocultar aviso de recordatorios">Cerrar</button>
-</aside>
+<aside id="notification-banner" class="notice notification-banner" hidden aria-label="Recordatorios pendientes"><span role="status">Tienes recordatorios que requieren atención.</span><a href="/notifications">Revisar notificaciones</a><button type="button" id="dismiss-notification" class="quiet-button" aria-label="Ocultar aviso de recordatorios">Cerrar</button></aside>
 {% endblock %}

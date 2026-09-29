@@ -27,6 +27,9 @@ from app.routers.mail_tasks import router as mail_tasks_router
 from app.routers.mail_ai import router as mail_ai_router
 from app.routers.notifications import router as notifications_router
 from app import notifications
+from app import calendar
+from app.routers.calendar import router as calendar_router
+from app.routers.users import router as users_router
 from app.models import MicrosoftAccount, Task
 from sqlalchemy import select, func
 from app.microsoft import configure_safe_logging
@@ -55,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.middleware("http")
     async def safe_responses(request: Request, call_next):
+        request.state.csp_nonce = secrets.token_urlsafe(24) if request.url.path == "/calendar" else None
         try:
             response = await call_next(request)
         except Exception:
@@ -69,9 +73,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         form_action = "'self'"
         if request.url.path in {"/integrations/microsoft", "/integrations/microsoft/connect"}:
             form_action += " https://login.microsoftonline.com"
+        style_policy = "'self'" + (f" 'nonce-{request.state.csp_nonce}'" if request.state.csp_nonce else "")
+        font_policy = "font-src data:; " if request.state.csp_nonce else ""
         response.headers["Content-Security-Policy"] = (
-            "default-src 'none'; style-src 'self'; img-src 'self'; script-src 'self'; connect-src 'self'; "
-            f"form-action {form_action}; frame-ancestors 'none'; base-uri 'none'"
+            f"default-src 'none'; style-src {style_policy}; img-src 'self'; script-src 'self'; connect-src 'self'; "
+            f"{font_policy}form-action {form_action}; frame-ancestors 'none'; base-uri 'none'"
         )
         return response
 
@@ -102,6 +108,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(mail_tasks_router)
     app.include_router(mail_ai_router)
     app.include_router(notifications_router)
+    app.include_router(calendar_router)
+    app.include_router(users_router)
 
     @app.get("/", include_in_schema=False)
     def index():
@@ -118,6 +126,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             context={"user": user, "csrf_token": csrf_token(request), "week_total": current_week_total(db, user, today=local_day),
                      "month_total": current_month_total(db, user, today=local_day), "task_summary": dashboard_summary(db, user, zone, now),
                      "notification_status": reminder_status,
+                     "upcoming_events": calendar.upcoming(db, user, zone, now),
                      "next_reminder": datetime.fromisoformat(reminder_status["next_at"]).astimezone(zone) if reminder_status["next_at"] else None,
                      "pending_tasks": db.scalar(select(func.count()).select_from(Task).where(Task.organization_id == user.organization_id, Task.user_id == user.id, Task.status == "pending")),
                      "microsoft_connected": db.scalar(select(MicrosoftAccount.id).where(MicrosoftAccount.organization_id == user.organization_id, MicrosoftAccount.user_id == user.id, MicrosoftAccount.is_active.is_(True))) is not None},

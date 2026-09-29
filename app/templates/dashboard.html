@@ -5,7 +5,7 @@
   <p class="eyebrow">TU ESPACIO DE TRABAJO</p>
   <h1>Hola, {{ user.full_name }}.</h1>
   <p class="intro">Bienvenido a {{ user.organization.name }}.</p>
-  <p class="muted">Rol: <span class="role">{{ user.role }}</span></p>
+  <p class="muted">Tu agenda, tus pendientes y el avance de tu semana.</p>
   <div class="dashboard-metrics">
     <a class="card shortcut" href="/tasks?status=pending"><h2>Tareas pendientes</h2><strong>{{ pending_tasks }}</strong><p id="dashboard-tasks">{{ task_summary.overdue }} vencidas · {{ task_summary.today }} para hoy · {{ task_summary.upcoming }} para los próximos 7 días.</p></a>
     <a class="card shortcut" href="/tasks?status=pending&amp;period=overdue"><h2>Tareas vencidas</h2><strong>{{ task_summary.overdue }}</strong><p>Revisa fechas y prioridades.</p></a>
@@ -14,6 +14,10 @@
     <a class="card shortcut" href="/hours/history"><h2>Horas de este mes</h2><strong id="dashboard-month-total">{{ '%.2f'|format(month_total) }} h</strong><p>Consulta y corrige tus registros.</p></a>
     <a class="card shortcut" href="/integrations/microsoft"><h2>Microsoft</h2><strong>{{ 'Conectado' if microsoft_connected else 'No conectado' }}</strong><p>Gestiona la conexión de tu cuenta.</p></a>
   </div>
-  <div class="form-actions"><a class="button-link" href="/tasks/new">Nueva tarea</a><a class="button-link secondary" href="/hours">Registrar horas</a><a class="text-link" href="/mail">Abrir correo</a><a class="text-link" href="/reports/month">Informes</a></div>
+  <section class="upcoming-panel" aria-labelledby="upcoming-heading">
+    <div class="page-heading"><div><p class="eyebrow">EN TU AGENDA</p><h2 id="upcoming-heading">Próximos eventos</h2></div><a class="text-link" href="/calendar">Ver calendario</a></div>
+    <ul class="upcoming-list">{% for event in upcoming_events %}<li><time datetime="{{ event.start }}"><strong>{{ event.when.strftime('%d/%m') }}</strong><span>{{ 'Todo el día' if event.allDay else event.when.strftime('%H:%M') }}</span></time><div><span class="badge event-type-{{ event.extendedProps.type }}">{{ event.extendedProps.typeLabel }}</span><a href="{{ event.url }}">{{ event.extendedProps.title }}</a><p>{{ event.extendedProps.client or 'Sin cliente' }}</p></div></li>{% else %}<li class="empty-state">No tienes eventos para los próximos 30 días. <a href="/calendar/new">Añadir un evento</a></li>{% endfor %}</ul>
+  </section>
+  <div class="form-actions"><a class="button-link" href="/tasks/new">Nueva tarea</a><a class="button-link secondary" href="/calendar/new">Nuevo evento</a><a class="button-link secondary" href="/hours">Registrar horas</a><a class="text-link" href="/mail">Abrir correo</a><a class="text-link" href="/reports/month">Informes</a></div>
 </section>
 {% endblock %}

@@ -133,11 +133,11 @@ class AdminCLITests(unittest.TestCase):
 
     def test_same_email_in_different_organizations(self):
         self.assertEqual(self.create()[0], 0)
-        self.assertEqual(self.create(self.organization + " second")[0], 0)
+        self.assertEqual(self.create(self.organization + " second")[0], 1)
         with self.factory() as db:
             users = db.scalars(select(User).where(User.email == self.email)).all()
-            self.assertEqual(len(users), 2)
-            self.assertNotEqual(users[0].organization_id, users[1].organization_id)
+            self.assertEqual(len(users), 1)
+            self.assertEqual(self._counts()[0], self.baseline[0] + 1)
 
     def test_invalid_input_and_confirmation_do_not_create_rows(self):
         self.assertEqual(self.create(email="invalid")[0], 1)

@@ -1,0 +1,23 @@
+{% extends "workspace.html" %}
+{% block title %}Calendario · Atenea{% endblock %}
+{% block head %}<meta name="csp-nonce" content="{{ request.state.csp_nonce }}">{% endblock %}
+{% block content %}
+<section class="module-page calendar-page">
+  <div class="page-heading"><div><p class="eyebrow">TU AGENDA DE TRABAJO</p><h1>Calendario</h1><p class="intro">Tareas, audiencias y compromisos en un solo lugar.</p></div><a class="button-link" href="/calendar/new">Nuevo evento</a></div>
+  <form id="calendar-filters" class="calendar-filters" aria-label="Filtros del calendario">
+    <fieldset><legend>Mostrar</legend><div class="calendar-types">{% for key, label in types.items() %}<label class="check-label"><input type="checkbox" name="types" value="{{ key }}" checked>{{ label }}</label>{% endfor %}<label class="check-label"><input type="checkbox" name="completed" value="1">Completados</label></div></fieldset>
+    <div class="calendar-associations"><div><label for="client_id">Cliente</label><select id="client_id" name="client_id"><option value="">Todos los clientes</option>{% for client in clients %}<option value="{{ client.id }}">{{ client.name }}</option>{% endfor %}</select></div><div><label for="project_id">Proyecto / Expediente</label><select id="project_id" name="project_id"><option value="">Todos los proyectos</option>{% for project in projects %}<option value="{{ project.id }}" data-client-id="{{ project.client_id }}">{{ project.name }}</option>{% endfor %}</select></div><button class="quiet-button" type="submit">Aplicar filtros</button></div>
+  </form>
+  <p class="field-help">Zona horaria: <strong>{{ zone.key }}</strong>. Selecciona una fecha para crear un evento o abre uno para editarlo. Los recordatorios tienen su propia etiqueta.</p>
+  <p id="calendar-status" role="status" aria-live="polite">Cargando calendario…</p>
+  <div id="calendar" data-timezone="{{ zone.key }}" data-business-days="{{ business_days|join(',') }}" aria-label="Calendario personal"></div>
+  <noscript><p class="notice">Activa JavaScript para ver el calendario. Puedes <a href="/calendar/new">crear eventos</a> y <a href="/tasks">consultar tus tareas</a>.</p></noscript>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/luxon-3.7.2.min.js" defer></script>
+<script src="/static/vendor/fullcalendar-6.1.21.min.js" defer></script>
+<script src="/static/vendor/fullcalendar-es-6.1.21.min.js" defer></script>
+<script src="/static/vendor/fullcalendar-luxon3-6.1.21.min.js" defer></script>
+<script src="/static/calendar.js" defer></script>
+{% endblock %}

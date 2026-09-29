@@ -37,7 +37,7 @@ def main():
                     if path == "/notifications/status":
                         route.fulfill(json={"pending": 0, "overdue": 0, "next_at": None})
                         return
-                    if path in ("/static/styles.css", "/static/workspace.js", "/static/hours.js"):
+                    if path in ("/static/styles.css", "/static/corporate.css", "/static/workspace.js", "/static/hours.js"):
                         route.fulfill(path=str(ROOT / "app" / path.lstrip("/")), content_type="text/css" if path.endswith("css") else "text/javascript")
                         return
                     if path == "/mail":

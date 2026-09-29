@@ -42,7 +42,7 @@ Para crear una cuenta real, si todavía no existe:
 & .\.venv\Scripts\python.exe -m uvicorn app.main:create_app --factory --reload --host 127.0.0.1 --port 8000 --no-access-log
 ```
 
-Abre **http://127.0.0.1:8000/login**. Usa el nombre de la organización, el email y la contraseña definidos mediante el CLI. Se toleran mayúsculas y espacios exteriores en organización y email. Si varias organizaciones coinciden por nombre, el login se rechaza con el mismo mensaje genérico que los demás fallos de credenciales.
+Abre **http://127.0.0.1:8000/login**. Introduce únicamente email y contraseña. La cuenta registrada determina automáticamente la organización. El email es único globalmente, ignorando mayúsculas y espacios exteriores; el nombre de organización no se solicita ni se acepta para decidir el acceso. Los fallos de credenciales muestran el mismo mensaje genérico.
 
 Se usa una fábrica (`create_app`), por eso el comando incluye `--factory`. No se crean ni alteran tablas al iniciar la web.
 
@@ -106,7 +106,7 @@ Para comprobarlo manualmente, registra horas un lunes y un domingo, consulta la 
 
 ## Sesión y protección
 
-La cookie `atenea_session` está firmada por `SessionMiddleware` de Starlette, es `HttpOnly`, `SameSite=Lax`, limitada al host y a la ruta `/`, y tiene una duración de 8 horas. Contiene solamente `user_id`, `organization_id` y un token aleatorio para proteger los formularios frente a CSRF. No contiene nombre, email, rol, contraseña ni hash. La firma protege frente a modificaciones; no cifra su contenido. Referencia: [SessionMiddleware de Starlette](https://github.com/Kludex/starlette/blob/main/docs/middleware.md#sessionmiddleware).
+La cookie `atenea_session` está firmada por `SessionMiddleware` de Starlette, es `HttpOnly`, `SameSite=Lax`, limitada al host y a la ruta `/`, y tiene una duración de 8 horas. La sesión de acceso contiene `user_id`, `organization_id`, `auth_version` y un token aleatorio para proteger los formularios frente a CSRF. No contiene nombre, email, rol, contraseña ni hash. La firma protege frente a modificaciones; no cifra su contenido. Referencia: [SessionMiddleware de Starlette](https://github.com/Kludex/starlette/blob/main/docs/middleware.md#sessionmiddleware).
 
 El login renueva los datos de sesión y el token CSRF. Login y logout requieren el token del formulario. Las páginas llevan `Cache-Control: no-store`, una política CSP que permite solo scripts locales y protección contra inclusión en marcos; las plantillas escapan el contenido HTML.
 
@@ -120,7 +120,7 @@ Los fallos de login muestran un mensaje genérico. La verificación de cuentas i
 2. Retira `--reload`, configura el proxy, los hosts permitidos, los encabezados reenviados de confianza y HSTS. El proxy debe evitar registrar contraseñas, cookies y cuerpos de formularios.
 3. Añade límites de intentos de login y monitorización de abusos antes de exponer el acceso a Internet.
 4. Protege `.env` y usa el mismo secreto aleatorio en todos los procesos de la aplicación. Rotarlo invalida todas las cookies existentes.
-5. El logout borra la cookie de ese navegador. Al ser sesiones firmadas en el cliente, una copia robada no se revoca individualmente: puede funcionar hasta caducar si usuario y organización siguen activos. Cambiar la contraseña tampoco revoca por sí solo una cookie emitida. Para revocación individual, incorpora sesiones almacenadas en servidor; desactivar usuario/organización ya bloquea el siguiente acceso.
+5. El logout borra la cookie de ese navegador. Restablecer una contraseña, cambiar el email o cambiar el estado del usuario mediante la administración incrementa `auth_version` y revoca sus cookies anteriores. Desactivar la organización bloquea los accesos mientras permanezca inactiva. No existe todavía revocación por dispositivo: el contador revoca todas las sesiones de la cuenta.
 
 ## Pruebas
 
@@ -641,3 +641,350 @@ python tests/check_mail_ai_browser.py
 ```
 
 Para probar manualmente: con `AI_ENABLED=false`, abre un detalle y comprueba el botón deshabilitado. Tras la autorización interna, configura clave y modelo compatibles, activa el flag y reinicia. Abre un correo de prueba autorizado, lee el aviso y pulsa **Analizar con IA**. Revisa resumen, motivos, acciones, fechas y discrepancias con reglas. Pulsa **Crear tarea con esta sugerencia**, modifica campos y confirma; verifica que solo se haya guardado esa tarea. Repite con otro usuario y comprueba aislamiento. No hace falta modificar Entra.
+
+## Fase 2A — Diseño corporativo y calendario operativo
+
+### Sistema visual
+
+El layout compartido utiliza sidebar fija a la izquierda, compacta en tablet y desplegable
+en móvil. Navegación: Inicio, Trabajo (incluye Calendario), Correo, Gestión, Reportes y
+Configuración. Microsoft está disponible para cada usuario; días laborables y zona horaria
+solo aparecen para administradores. La barra superior muestra contexto, campana, identidad
+y acciones de tareas/calendario. La organización y la cuenta también aparecen al pie del menú.
+
+Los colores semánticos se centralizan en `app/static/styles.css`: principal/secundario,
+fondo/superficies, texto, bordes, éxito, advertencia, error, información y prioridades.
+`app/static/corporate.css` aplica el layout y normaliza botones, formularios, estados disabled,
+tablas, badges, errores, paginación y calendario usando esos tokens. Se usan fuentes del
+sistema, sin servicios de fuentes externos. Las tablas anchas tienen desplazamiento interno
+deliberado; no ensanchan la página.
+
+Accesibilidad: enlace para saltar al contenido, foco visible, `aria-current`, grupos de
+navegación con `aria-expanded`, labels y errores asociados a sus campos. El menú móvil
+admite teclado, Escape, retorno del foco, fondo de cierre y contención del foco. Sin JS,
+la navegación y los formularios siguen disponibles; la cuadrícula de calendario requiere JS.
+Las categorías de eventos se identifican por texto además del color.
+
+El dashboard conserva tareas pendientes/vencidas, recordatorios de tareas y eventos, horas y estado
+Microsoft, y añade ocho próximos eventos de los siguientes 30 días, con enlace al calendario.
+Se consulta un número acotado de filas por tipo; no se carga el historial completo.
+Acciones rápidas: Nueva tarea, Nuevo evento, Registrar horas, Abrir correo e Informes.
+
+### FullCalendar y dependencias
+
+- **FullCalendar Standard 6.1.21, MIT**, fijado en la rama 6 compatible con la aplicación.
+- **Luxon 3.7.2, MIT**, más `@fullcalendar/luxon3` 6.1.21 para zonas IANA.
+- Archivos distribuidos localmente en `app/static/vendor/`, con licencias originales,
+  orígenes y hashes SHA-256. No hay CDN en tiempo de ejecución, React, Vue, Scheduler ni Premium.
+- No se añadieron dependencias Python ni variables de entorno. `.env` permanece excluido
+  de Git y no se modificó. No hay cambios de Entra, permisos Graph ni activación de IA.
+
+La rama 7 es más reciente, pero cambió a AGPLv3/comercial; se eligió explícitamente la
+última 6.x documentada con MIT. Referencias oficiales:
+[scripts Standard 6](https://legacy.fullcalendar.io/v6/initialize-globals),
+[Luxon y zonas horarias](https://legacy.fullcalendar.io/v6/luxon),
+[cambios en versión 7](https://fullcalendar.io/docs/upgrading-from-v6).
+
+El calendario usa un nonce CSS aleatorio por respuesta y permite las fuentes de iconos
+embebidas de la librería únicamente en esa página. No se habilitan scripts inline,
+`unsafe-inline` ni dominios externos. Véase [CSP de FullCalendar](https://legacy.fullcalendar.io/v6/content-security-policy).
+
+### Modelo y migración
+
+Se revisó `Task`: su fecha límite, prioridad y recurrencia no representan adecuadamente
+una audiencia con inicio/fin, ubicación y tribunal. Se añadió `CalendarEvent`, exclusivamente
+para eventos que no sean tareas: audiencia, reunión, cita, recordatorio y otro.
+El usuario responsable siempre es el usuario autenticado; no hay asignaciones a terceros.
+
+Campos: `id`, `organization_id`, `user_id`, `event_type`, `title`, `description`,
+`client_id`, `project_id`, `start_at`, `end_at`, `start_date`, `end_date`, `all_day`,
+`location`, `institution`, `status`, `reminder_at`, `source_type`, `source_id`,
+`created_at` y `updated_at`. Los campos de origen quedan nulos y reservados para futuras
+integraciones; el navegador no puede asignarlos.
+
+`migrations/007_calendar_events.sql` es **aditiva, transaccional y repetible**. Crea la tabla,
+FKs compuestas de propietario/organización/cliente/proyecto, restricciones de tipo, estado,
+fechas y coherencia, e índices por propietario/fecha/recordatorio, cliente y proyecto.
+El ejecutor valida columnas, FKs, restricciones e índices y falla ante un esquema incompatible
+sin reemplazarlo. No elimina ni transforma datos existentes. La migración quedó aplicada
+y su repetición verificada en la base local durante esta implementación.
+
+En otro entorno, aplicar antes de arrancar la nueva versión:
+
+```powershell
+.\.venv\Scripts\python.exe -m app.migrate
+.\.venv\Scripts\python.exe -m uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000
+```
+
+### Rutas y comportamiento
+
+| Método | Ruta | Uso |
+|---|---|---|
+| GET | `/calendar` | Calendario autenticado |
+| GET | `/calendar/events?start=...&end=...` | JSON limitado al rango y propietario |
+| GET / POST | `/calendar/new` | Formulario y creación de evento |
+| GET | `/calendar/{event_id}` | Detalle privado del evento |
+| GET / POST | `/calendar/{event_id}/edit` | Edición privada |
+| POST | `/calendar/{event_id}/cancel` | Cancelación local, conserva el registro |
+| GET | `/calendar/tasks/{task_id}` | Detalle de la Task existente |
+| POST | `/notifications/events/{event_id}/snooze` | Posponer el recordatorio del evento privado |
+
+Los POST necesitan CSRF. Editar, completar o cancelar una tarea reutiliza las rutas y lógica
+de tareas. `/tasks/new` admite una fecha/hora inicial validada desde el calendario; no guarda
+nada hasta confirmar el formulario. Elegir «Tarea» al crear un evento abre ese formulario.
+
+Vistas: Mes (`dayGridMonth`), Semana (`timeGridWeek`), Día (`timeGridDay`) y Agenda
+(`listWeek`), en español y comenzando en lunes. Móvil abre Agenda por legibilidad; permite
+cambiar a cualquier vista. Semana/día muestran las 24 horas en una zona desplazable y abren
+a las 07:00; se destacan 08:00–18:00 en los días laborables configurados por organización.
+Seleccionar una fecha/hora abre el formulario. El detalle permite editar y cancelar; una
+tarea pendiente permite completar o cancelar mediante el módulo existente.
+
+Filtros: tareas, audiencias, reuniones, citas, recordatorios, otros, completados, cliente y
+proyecto. Los filtros se validan en el servidor y se aplican al pulsar **Aplicar filtros**.
+El rango es semiabierto `[start, end)`, positivo, máximo 93 días. Se aceptan fechas civiles
+o timestamps ISO con offset; se rechazan timestamps sin zona. Máximo 2.000 entradas por
+respuesta; si se supera se solicita reducir el rango/filtros, sin truncado silencioso.
+No se aceptan `user_id`, `organization_id` ni parámetros desconocidos para escoger calendario.
+La sesión define ambos ámbitos y un administrador no ve eventos privados ajenos.
+
+Las tareas aparecen directamente desde `Task`, sin copias en `CalendarEvent` ni modificaciones
+al consultar. Sin hora, se muestran todo el día; con hora, conservan su fecha/hora civil.
+Solo aparecen las ocurrencias recurrentes ya generadas. Completar/cancelar conserva la
+generación existente de la siguiente ocurrencia; consultar el calendario no genera tareas.
+
+Los recordatorios de tareas y eventos se muestran con una etiqueta separada si difieren del
+instante principal. Si coinciden, no se dibuja un duplicado. Los recordatorios propios del
+tipo «Recordatorio» tampoco se duplican. Cancelar un evento retira su recordatorio y lo oculta
+del calendario, manteniendo el registro. El centro **Avisos** combina recordatorios de
+tareas pendientes y eventos programados, con un único contador, orden y paginación de 30
+filas. Cada rama de la consulta aplica organización y usuario antes de combinar resultados;
+solo se cargan los objetos de la página, sin duplicar notificaciones en otra tabla.
+La campana, el banner y el dashboard reutilizan el mismo contador, sin exponer títulos
+en `/notifications/status`. Se conserva la ventana de atención de 15 minutos y el orden:
+vencidos, prioridad urgente de tareas y fecha; tipo/ID resuelven empates.
+
+Los eventos tienen las mismas opciones para posponer: 15 minutos, una hora o mañana a las
+09:00 de la organización, respetando DST. `POST /notifications/events/{event_id}/snooze`
+exige sesión, CSRF, propiedad y estado programado con recordatorio, y bloquea la fila
+durante la actualización. No cambia inicio, fin, tipo ni asociaciones. Posponer puede
+llevar el aviso después del inicio del evento: es aplazar el aviso, no reprogramar el evento.
+Al editar otros campos se conserva ese recordatorio, incluida su precisión de segundos;
+un recordatorio nuevo introducido en el formulario debe seguir siendo anterior al inicio.
+Para retirarlo, editar el evento y vaciar Recordatorio; cancelarlo también lo retira.
+Los eventos no tienen la acción «Completar tarea». Las acciones y recurrencias de Task
+siguen usando la lógica y URLs anteriores.
+No se implementaron envíos externos, avisos push ni procesos de background.
+
+### Zona horaria
+
+Se usa siempre la zona IANA de la organización, independientemente de la zona del navegador.
+Eventos con hora y recordatorios se almacenan como `TIMESTAMPTZ`/instantes UTC. El formulario
+interpreta entradas en la zona de la organización y rechaza horas ambiguas o inexistentes
+por DST. Inicio y fin se convierten individualmente, incluso al cruzar un cambio de offset.
+
+Los eventos de día completo usan fechas civiles `start_date`/`end_date` y dejan nulos los
+instantes: así no cambian de día al cambiar la zona. `end_date` es exclusiva internamente;
+formulario y detalle muestran el último día inclusivo. El modelo valida que se utilice
+exactamente una representación. Las tareas conservan su modelo civil y las reglas existentes
+para recurrencias automáticas. Cambiar la zona de la organización cambia la presentación de
+los eventos con hora, conservando su instante; no reprograma automáticamente sus instantes.
+
+### Archivos de la fase
+
+Nuevos:
+
+- `app/calendar.py`, `app/routers/calendar.py`.
+- `app/templates/calendar.html`, `calendar_form.html`, `calendar_detail.html`.
+- `app/static/corporate.css`, `calendar.js`, `calendar-form.js`, `app/static/vendor/`.
+- `migrations/007_calendar_events.sql`.
+- `tests/test_calendar.py`, `test_calendar_migration.py`, `test_calendar_notifications.py`, `calendar_browser_fixture.py`, `check_calendar_browser.py`.
+
+Modificados:
+
+- `app/models.py`, `app/migrate.py`, `app/main.py`, `app/routers/tasks.py`.
+- `app/notifications.py`, `app/routers/notifications.py`, `app/templates/notifications.html`.
+- CSS: `app/static/styles.css`; JS compartido: `app/static/workspace.js`.
+- Templates: `base.html`, `workspace.html`, `dashboard.html`.
+- QA: `tests/check_notifications_browser.py`, `check_mail_rules_browser.py`, `check_mail_ai_browser.py`, `test_uvicorn_startup.py`.
+- `README.md`.
+
+Los demás módulos reciben el nuevo diseño mediante sus estilos y layout compartidos.
+
+### Validación y prueba manual
+
+Se añadieron 37 pruebas de calendario/migración y 14 de avisos de eventos: login, aislamiento entre usuarios y
+organizaciones, admins, CSRF de creación/edición/cancelación, FKs, clientes/proyectos,
+tipos, filtros, rangos, límites, tareas con/sin hora, recordatorios, DST, días completos,
+cancelación idempotente, consultas sin duplicación, recurrencias, dashboard, CSP y navegación.
+La ampliación cubre contador y paginación combinados, IDs iguales en ambas tablas,
+snooze/CSRF, aislamiento incluyendo administradores, DST, cancelación, edición después
+de posponer, actualización de calendario/dashboard y GET sin escrituras ni metadatos sensibles.
+La suite anterior se conserva; Uvicorn también comprueba recursos y rutas nuevas.
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -q
+.\.venv\Scripts\python.exe -m pip check
+# QA con el intérprete que dispone de Playwright/Chromium:
+python tests/check_calendar_browser.py
+python tests/check_notifications_browser.py
+python tests/check_mail_rules_browser.py
+python tests/check_mail_ai_browser.py
+```
+
+QA usa datos ficticios en transacciones revertidas y Microsoft/IA simulados. El navegador
+carga HTML/JSON renderizados por FastAPI y los archivos JS reales; la suite comprueba los
+POST contra PostgreSQL. Se revisan 320, 375, 768, 1024 y 1440 px, cuatro vistas de calendario,
+20 pantallas, menú/foco, formularios de creación/edición, login, usuarios, tablas, correo,
+tareas, avisos de eventos, dashboard y una zona de navegador
+distinta a la organización. No hay overflow horizontal del documento ni errores JS/CSP.
+
+Resultado final de Fase 2A ampliada, conservando Parte C: **430 pruebas aprobadas**
+(14 nuevas sobre las 416 anteriores; 51 específicas de calendario y sus avisos).
+`pip check` sin dependencias incompatibles y arranque real de Uvicorn aprobado.
+Chromium aprobó los cinco anchos de esta fase y 26 escenarios adicionales de regresión:
+14 de notificaciones, 4 de clasificación por reglas, 4 de IA simulada y 4 de login/usuarios.
+Microsoft y OpenAI permanecieron simulados durante las pruebas. Se volvieron a verificar
+las migraciones 001–008: **007** crea CalendarEvent; **008** sigue siendo la última,
+correspondiente al login/usuarios de Parte C. Esta ampliación de Avisos reutiliza
+`calendar_events.reminder_at` e índices existentes y no requiere migración adicional.
+`git diff --check` quedó limpio.
+
+Prueba manual sugerida:
+
+1. Reinicia Atenea, inicia sesión y abre **Trabajo → Calendario**.
+2. Cambia entre Mes, Semana, Día y Agenda; comprueba la zona indicada.
+3. Selecciona una fecha/hora. Crea una audiencia con cliente, expediente, tribunal, ubicación,
+   hora de fin y recordatorio anterior. Ábrela, corrige la hora y guarda.
+4. Crea una reunión, una cita y un evento de día completo; revisa sus etiquetas y fechas.
+5. Desde el formulario elige Tarea, confirma en el módulo existente y comprueba que aparece
+   una sola tarea en el calendario. Completar una recurrente conserva su funcionamiento.
+6. Aplica filtros por tipo, cliente, proyecto y completados; revisa Próximos eventos en Inicio.
+7. Abre Avisos y pospón el recordatorio de una audiencia: cambia el aviso en el calendario
+   y el contador, pero la audiencia conserva su inicio. Prueba editarla después del snooze.
+   Cancélala y verifica que desaparece de la agenda y Avisos; su detalle conserva el estado.
+8. En otra sesión, usa otro usuario de la misma organización y un administrador: ninguno debe
+   ver el evento privado. Repite con otra organización.
+9. Comprueba menú, foco y formularios en móvil; revisa correo, avisos, horas y reportes.
+
+Limitaciones deliberadas: sin drag & drop/resize; se edita mediante formulario. Sin calendarios
+compartidos, asignaciones, sincronización Outlook/Google, permisos Calendar de Graph,
+videollamadas ni IA en calendario. No se expanden recurrencias futuras aún no generadas y
+no se envían recordatorios fuera de la aplicación.
+
+## Parte C — Login simplificado y usuarios por organización
+
+El login pide **email y contraseña**, con CSRF. El servidor busca la identidad normalizada,
+verifica bcrypt, usuario activo y organización activa; obtiene `organization_id` de la fila
+del usuario y crea la sesión. Nunca se admite que el navegador seleccione otra organización.
+Cuenta inexistente, contraseña incorrecta y cuenta inactiva muestran **Email o contraseña
+incorrectos.** No hay recuperación pública que revele la existencia de cuentas.
+
+### Migración 008 e identidad
+
+`008_global_user_email.sql` añade el índice único global `lower(btrim(email))` y el contador
+`auth_version` (entero no negativo, inicialmente cero). Se conserva el índice previo por
+organización y todas las cuentas, hashes y referencias históricas.
+
+`python -m app.migrate` bloquea escrituras de usuarios durante la comprobación y construcción
+del índice. Primero detecta duplicados normalizados, incluyendo cuentas inactivas. Si hay
+conflictos, detiene y revierte la migración, enumera los **IDs de usuarios en conflicto** y
+solicita resolverlos explícitamente; no borra usuarios, no fusiona cuentas ni cambia emails
+silenciosamente. El operador local puede consultar `python -m app.cli list-users` para
+identificar los registros y coordinar su corrección. No se debe iniciar esta versión hasta
+que la migración finalice correctamente.
+
+Las altas y ediciones normalizan con trim y lowercase. La migración conserva la escritura
+original de emails históricos; autenticación e índice comparan su forma normalizada.
+En la base local no había duplicados, y la migración quedó aplicada durante esta implementación.
+
+### Administración → Usuarios
+
+Solo administradores activos de la organización pueden acceder. La lista está paginada
+(50 cuentas por página), incluye activas/inactivas y consulta únicamente los campos visibles,
+nunca hashes. El propietario organizativo se toma de la sesión y se rechazan IDs de
+organización/usuario enviados como campos de formulario.
+
+| Ruta | Métodos | Función |
+|---|---|---|
+| `/settings/users` | GET | Usuarios de la organización autenticada |
+| `/settings/users/new` | GET, POST | Nombre, email, rol, estado y contraseña inicial |
+| `/settings/users/{id}/edit` | GET, POST | Nombre, email, rol y estado |
+| `/settings/users/{id}/password` | GET, POST | Restablecimiento local de contraseña |
+
+Los POST requieren CSRF. Acceder a una cuenta de otra organización devuelve el mismo 404
+que una inexistente. Un email ocupado devuelve un mensaje genérico de indisponibilidad,
+sin revelar qué cuenta u organización lo utiliza. El índice global también cubre carreras
+entre altas/ediciones de diferentes organizaciones.
+
+Se impide degradar o desactivar al último administrador activo. Las modificaciones se
+serializan con un bloqueo de fila de la organización; tras adquirirlo se revalida el rol,
+estado y versión de sesión del administrador. Una prueba con dos transacciones simultáneas
+comprueba que al menos un administrador permanece activo.
+
+Desactivar no elimina datos ni ejecuta borrados en cascada: tareas, horas, eventos y conexiones
+permanecen asociadas a la cuenta. Al cambiar estado o email se incrementa `auth_version`;
+reactivar no vuelve válidas las cookies antiguas. El rol se comprueba en cada petición, de
+modo que un administrador degradado deja de tener acceso administrativo inmediatamente.
+
+### Contraseñas y sesiones
+
+Sin infraestructura de invitaciones, el administrador configura una contraseña inicial o
+una nueva contraseña, confirmándola en el formulario. Se reutiliza bcrypt con 12 rondas,
+sal aleatoria y la política existente: mínimo 12 caracteres, máximo 72 bytes UTF-8, sin
+truncamiento y rechazando contraseñas de solo espacios. Solo se guarda el hash. Las contraseñas
+no se repueblan en formularios tras errores, ni aparecen en respuestas, logs o URLs.
+
+El restablecimiento local invalida todas las sesiones anteriores mediante `auth_version`.
+Si el administrador restablece su propia contraseña, se elimina también su cookie y vuelve
+al login. Las sesiones previas a la migración se consideran versión cero, por lo que siguen
+funcionando hasta caducar o hasta una revocación. Una contraseña restablecida no borra
+conexiones Microsoft ni cambia sus permisos; sí impide reutilizar la antigua sesión Atenea.
+
+La entrega de la contraseña al titular es manual y debe realizarse por un canal privado.
+No se envían emails ni se implementan todavía invitaciones, magic links, recuperación pública
+o cambio obligatorio en primer acceso. `app/users.py` centraliza normalización, política,
+alta y restablecimiento para poder incorporar esos flujos posteriormente.
+
+### CLI, archivos y validación
+
+`create-admin` conserva la selección de organización como herramienta local de alta,
+pero rechaza un email ya utilizado en cualquier organización y revierte el alta completa.
+`list-users` mantiene su alcance de operador local (todas las organizaciones) y muestra
+también el ID de organización para diagnosticar conflictos. No muestra hashes. Ese alcance
+no se traslada a la pantalla web, que siempre está limitada a la organización autenticada.
+
+Nuevos: `app/users.py`, `app/routers/users.py`, `app/templates/users.html`,
+`app/templates/user_form.html`, `migrations/008_global_user_email.sql`,
+`tests/test_users.py`, `tests/test_user_identity_migration.py`,
+`tests/test_user_admin_concurrency.py`, `tests/users_browser_fixture.py` y
+`tests/check_users_browser.py`.
+
+Modificados en esta parte: `app/models.py`, `app/migrate.py`, `app/routers/auth.py`,
+`app/web_auth.py`, `app/cli.py`, `app/main.py`, `app/templates/login.html`,
+`app/templates/workspace.html`, `app/static/corporate.css`, fixtures/pruebas de autenticación,
+CLI, trabajo, correo y Uvicorn, y este README. Se conservó el trabajo de Fase 2A.
+No hay dependencias adicionales, variables nuevas, cambios en `.env` ni permisos Microsoft nuevos.
+
+```powershell
+.\.venv\Scripts\python.exe -m app.migrate
+.\.venv\Scripts\python.exe -m unittest discover -s tests -q
+.\.venv\Scripts\python.exe -m pip check
+# QA opcional con Playwright/Chromium:
+python tests/check_users_browser.py
+```
+
+Prueba manual: reinicia Atenea, entra con email/contraseña y abre **Administración → Usuarios**.
+Crea una cuenta; inicia sesión con ella en otro navegador y verifica su organización.
+Cambia nombre/email/rol/estado desde administración; verifica que desactivar conserva los
+registros y bloquea accesos. Restablece su contraseña y comprueba que la sesión anterior
+deja de funcionar. Intenta retirar al último administrador y confirma que se rechaza.
+Con un usuario normal o un administrador de otra organización no deben aparecer las cuentas ajenas.
+
+Resultado de validación de Parte C: **416 pruebas aprobadas**, 27 nuevas respecto de Fase 2A.
+Incluye la carrera real entre administradores, migración con duplicados, restablecimiento y
+revocación, y login por email seguido de lectura de buzones Microsoft simulados para tres
+propietarios en dos organizaciones. `pip check` sin incompatibilidades y arranque real de
+Uvicorn aprobado, incluidas las nuevas rutas protegidas. Chromium verificó login, listado,
+alta, edición y restablecimiento a 320/768/1024/1440 px, sin overflow del documento, errores
+JS/CSP ni repoblación de contraseñas; también pasaron los 14 escenarios de notificaciones.
